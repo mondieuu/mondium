@@ -1,0 +1,58 @@
+// Mondium ses yukseltme: sekmedeki video/ses ogelerini Web Audio kazanc dugumunden gecirir.
+// Ana surec bu dosyanin basina "const GAIN = <sayi>;" ekleyip her karede calistirir (ana karede ayrik dunyada).
+// Tekrar calistirilinca sadece kazanci gunceller; dugumler oge basina bir kez kurulur (sizinti yok, WeakMap).
+// Baska siteden CORS'suz gelen medya Web Audio'ya baglanirsa SESSIZ kalir; bu yuzden onlara dokunulmaz.
+(() => {
+  const KEY = Symbol.for('mondium.volume');
+  let s = window[KEY];
+  if (!s) {
+    if (GAIN === 1) return 0;                       // hic yukseltilmemis sayfada bos yere kurulmaz
+    s = { ctx: null, gain: null, limit: null, boosted: false, linked: new WeakMap(), count: 0 };
+    Object.defineProperty(window, KEY, { value: s });
+    const safe = (el) => {
+      const src = el.currentSrc || '';
+      if (!src) return false;                         // henuz yuklenmedi; oynayinca tekrar denenir
+      if (/^(blob|data|mediastream):/i.test(src)) return true;   // YouTube, Twitch vb. (MSE)
+      try { if (new URL(src, location.href).origin === location.origin) return true; } catch { return false; }
+      return el.crossOrigin != null;                  // CORS ile yuklenen baska site medyasi
+    };
+    s.hook = (el) => {
+      if (s.linked.has(el) || !safe(el)) return;
+      try {
+        if (!s.ctx) {
+          s.ctx = new AudioContext();
+          s.gain = s.ctx.createGain();
+          // Sinirlayici: yuksek kazancta cizirtiyi (clipping) azaltir; sadece %100 ustunde devrede
+          s.limit = s.ctx.createDynamicsCompressor();
+          s.limit.threshold.value = -3; s.limit.knee.value = 3; s.limit.ratio.value = 20;
+          s.limit.attack.value = 0.002; s.limit.release.value = 0.2;
+          s.limit.connect(s.ctx.destination);
+          s.route();
+        }
+        const n = s.ctx.createMediaElementSource(el);
+        n.connect(s.gain);
+        s.linked.set(el, n);
+        s.count++;
+        if (s.ctx.state === 'suspended') s.ctx.resume().catch(() => {});
+      } catch {}
+    };
+    s.route = () => {
+      if (!s.gain) return;
+      s.gain.gain.value = s.value;
+      const want = s.value > 1;
+      if (s.boosted === want && s.routed) return;
+      try { s.gain.disconnect(); } catch {}
+      s.gain.connect(want ? s.limit : s.ctx.destination);
+      s.boosted = want; s.routed = true;
+    };
+    document.addEventListener('play', (e) => {
+      const el = e.target;
+      if (s.value !== 1 && (el instanceof HTMLMediaElement)) s.hook(el);
+      if (s.ctx && s.ctx.state === 'suspended') s.ctx.resume().catch(() => {});
+    }, true);
+  }
+  s.value = GAIN;
+  if (s.value !== 1) document.querySelectorAll('video, audio').forEach(s.hook);
+  s.route();
+  return s.count;
+})();

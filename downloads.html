@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>İndirilenler</title>
+<style>
+  :root { --bg:#f8fafd; --card:#ffffff; --text:#1f1f1f; --dim:#5f6368; --border:#e3e3e3; --hover:rgba(31,31,31,.06);
+    --accent:#0b57d0; --accent-fg:#fff; --sel:#d3e3fd; --field:#e9eef6; --modal:#ffffff; --danger:#b3261e; --track:#d3e3fd; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1f1f1f; --card:#282828; --text:#e3e3e3; --dim:#a8abaf; --border:#3c3c3c; --hover:rgba(227,227,227,.08);
+      --accent:#a8c7fa; --accent-fg:#062e6f; --sel:#004a77; --field:#333537; --modal:#2d2f31; --danger:#f2b8b5; --track:#3c4a5e; }
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  [hidden] { display:none !important; }
+  html, body { min-height:100%; background:var(--bg); color:var(--text); font:13px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  svg { width:20px; height:20px; fill:currentColor; flex:none; }
+  button { font:inherit; color:inherit; cursor:default; }
+  a { color:inherit; text-decoration:none; }
+
+  /* ---------- Ust cubuk ---------- */
+  header { position:sticky; top:0; z-index:5; height:56px; display:flex; align-items:center; background:var(--bg); padding:0 16px 0 0; }
+  header.scrolled { box-shadow:0 1px 2px rgba(0,0,0,.12), 0 1px 3px 1px rgba(0,0,0,.06); }
+  .brand { width:256px; flex:none; padding-left:24px; font-size:22px; font-weight:400; display:flex; align-items:center; gap:14px; }
+  .brand svg { color:var(--accent); width:24px; height:24px; }
+  .search { flex:1; max-width:680px; height:40px; margin:0 auto; display:flex; align-items:center; gap:10px; padding:0 8px 0 14px;
+    border-radius:20px; background:var(--field); color:var(--dim); }
+  .search:focus-within { background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .search input { flex:1; height:100%; border:0; outline:none; background:none; color:var(--text); font-size:15px; }
+  .search .x { width:28px; height:28px; border:0; background:none; border-radius:50%; display:none; align-items:center; justify-content:center; color:var(--dim); }
+  .search .x svg { width:18px; height:18px; }
+  .search .x:hover { background:var(--hover); }
+  .search.has .x { display:flex; }
+  .spacer { width:256px; flex:none; }
+
+  /* ---------- Yan menu ---------- */
+  nav { position:fixed; top:56px; left:0; width:256px; padding:8px 12px 0 0; }
+  nav a, nav button { width:100%; height:40px; display:flex; align-items:center; gap:16px; padding:0 24px; border:0; background:none;
+    border-radius:0 20px 20px 0; font-size:14px; text-align:left; }
+  nav a:hover, nav button:hover { background:var(--hover); }
+  nav .on { background:var(--sel); font-weight:600; }
+  nav .on:hover { background:var(--sel); }
+  nav svg { color:var(--dim); }
+  nav .on svg { color:var(--accent); }
+  nav .sep { height:1px; background:var(--border); margin:8px 0 8px 24px; }
+  @media (max-width: 900px) { nav, .spacer { display:none; } .brand { width:auto; padding-right:16px; } }
+
+  /* ---------- Liste ---------- */
+  main { margin-left:256px; padding:8px 24px 48px; }
+  @media (max-width: 900px) { main { margin-left:0; } }
+  .wrap { max-width:720px; margin:0 auto; }
+  .tools { display:flex; align-items:center; gap:8px; margin:4px 0 12px; min-height:36px; }
+  .tools .info { flex:1; color:var(--dim); }
+  .btn { height:36px; padding:0 16px; border-radius:18px; border:1px solid var(--border); background:none; color:var(--accent); font-weight:500;
+    display:inline-flex; align-items:center; gap:8px; }
+  .btn svg { width:18px; height:18px; }
+  .btn:hover { background:var(--hover); }
+  .btn.danger { background:var(--danger); border-color:var(--danger); color:var(--card); }
+
+  .date { font-size:14px; font-weight:600; padding:16px 4px 8px; }
+  .dl { position:relative; display:flex; gap:16px; background:var(--card); border-radius:12px; padding:16px 48px 16px 16px; margin-bottom:8px;
+    box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  .dl .ic { width:40px; height:40px; flex:none; border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--field); color:var(--dim); }
+  .dl .ic img { width:32px; height:32px; }
+  .dl .body { flex:1; min-width:0; }
+  .name { display:block; font-size:14px; font-weight:600; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  a.name { color:var(--accent); }
+  a.name:hover { text-decoration:underline; }
+  .dl.gone .name { color:var(--dim); text-decoration:line-through; font-weight:400; }
+  .dl.gone .ic { opacity:.5; }
+  .src { display:block; margin-top:2px; color:var(--dim); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .src:hover { text-decoration:underline; }
+  .status { margin-top:6px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .status.err { color:var(--danger); }
+  .bar { height:4px; border-radius:2px; background:var(--track); margin-top:10px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); border-radius:2px; transition:width .3s; }
+  .bar.ind i { width:30% !important; animation:ind 1.4s infinite ease-in-out; }
+  .bar.paused i { background:var(--dim); }
+  @keyframes ind { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
+  .acts { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0 0 -12px; }
+  .acts button { height:32px; padding:0 12px; border:0; border-radius:16px; background:none; color:var(--accent); font-weight:600; }
+  .acts button:hover { background:var(--hover); }
+  .rm { position:absolute; top:10px; right:10px; width:32px; height:32px; border:0; border-radius:50%; background:none; color:var(--dim);
+    display:flex; align-items:center; justify-content:center; }
+  .rm:hover { background:var(--hover); }
+  .rm svg { width:18px; height:18px; }
+
+  .empty { text-align:center; color:var(--dim); padding:96px 16px; }
+  .empty svg { width:96px; height:96px; color:var(--border); margin-bottom:16px; }
+  .empty .big { font-size:16px; color:var(--text); margin-bottom:6px; }
+  .note { display:flex; align-items:center; gap:10px; color:var(--dim); font-size:12px; padding:12px 4px 0; }
+  .note svg { width:16px; height:16px; }
+
+  #modal { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; }
+  #modal[hidden] { display:none; }
+  .dlg { width:min(440px, 92vw); background:var(--modal); border-radius:16px; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,.3); }
+  .dlg h3 { font-size:20px; font-weight:400; margin-bottom:12px; }
+  .dlg p { color:var(--dim); font-size:14px; line-height:1.5; }
+  .dlg .row2 { display:flex; justify-content:flex-end; gap:8px; margin-top:24px; }
+</style>
+</head>
+<body>
+  <header id="hdr">
+    <div class="brand"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>İndirilenler</div>
+    <label class="search" id="sbox">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <input id="q" placeholder="İndirilenlerde ara" autocomplete="off" spellcheck="false">
+      <button class="x" id="qx" title="Aramayı temizle"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </label>
+    <div class="spacer"></div>
+  </header>
+
+  <nav>
+    <button id="toHist"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>Geçmiş</button>
+    <a class="on" href="#"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>İndirilenler</a>
+    <div class="sep"></div>
+    <button id="clearData"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Tarama verilerini temizle</button>
+  </nav>
+
+  <main>
+    <div class="wrap">
+      <div class="tools">
+        <span class="info" id="info"></span>
+        <button class="btn" id="folder"><svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Klasörü aç</button>
+        <button class="btn" id="clearAll">Tümünü temizle</button>
+      </div>
+      <div id="list"></div>
+      <div class="note"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/></svg>Listeden kaldırmak dosyayı silmez. Liste yalnızca bu bilgisayarda tutulur, son 100 indirme saklanır.</div>
+    </div>
+  </main>
+
+  <div id="modal" hidden>
+    <div class="dlg">
+      <h3>İndirme listesi temizlensin mi?</h3>
+      <p>Tamamlanan, iptal edilen ve başarısız indirmeler listeden kaldırılır. Dosyalarınız silinmez.</p>
+      <div class="row2">
+        <button class="btn" id="mc">İptal</button>
+        <button class="btn danger" id="mok">Temizle</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const api = window.pageApi;
+const FILE_IC = '<svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>';
+const X_IC = '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+const EMPTY_IC = '<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>';
+
+let list = [], query = '';
+const speed = new Map();   // id -> { t, received, bps }
+
+function applyTheme(t) {
+  const st = document.documentElement.style;
+  for (const n of ['--bg', '--accent', '--card', '--modal', '--field', '--sel', '--track']) st.removeProperty(n);
+  if (!t) return;
+  st.setProperty('--bg', t.page);
+  st.setProperty('--accent', t.accent);
+  st.setProperty('--sel', `color-mix(in srgb, ${t.accent} 28%, transparent)`);
+  st.setProperty('--track', `color-mix(in srgb, ${t.accent} 25%, transparent)`);
+  if (t.mode === 'dark') { st.setProperty('--card', t.toolbar); st.setProperty('--modal', t.toolbar); st.setProperty('--field', t.toolbar); }
+}
+
+// ---------- Yardimcilar
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
+  return (b / Math.pow(1024, i)).toLocaleString('tr-TR', { maximumFractionDigits: i > 1 ? 1 : 0 }) + ' ' + u[i];
+}
+function fmtLeft(s) {
+  if (!isFinite(s) || s <= 0) return '';
+  if (s < 60) return Math.ceil(s) + ' sn kaldı';
+  if (s < 3600) return Math.ceil(s / 60) + ' dk kaldı';
+  return Math.floor(s / 3600) + ' sa ' + Math.ceil((s % 3600) / 60) + ' dk kaldı';
+}
+const fmtDay = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+function dayLabel(t) {
+  const d = new Date(t); d.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - d) / 864e5);
+  return diff === 0 ? 'Bugün' : diff === 1 ? 'Dün' : fmtDay.format(t);
+}
+function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
+
+function track(d) {
+  if (d.state !== 'progressing' || d.paused) { speed.delete(d.id); return 0; }
+  const now = performance.now(), s = speed.get(d.id);
+  if (!s) { speed.set(d.id, { t: now, received: d.received, bps: 0 }); return 0; }
+  const dt = (now - s.t) / 1000;
+  if (dt >= 0.8) {
+    const inst = Math.max(0, (d.received - s.received) / dt);
+    s.bps = s.bps ? s.bps * 0.6 + inst * 0.4 : inst;   // yumusatilmis hiz
+    s.t = now; s.received = d.received;
+  }
+  return s.bps;
+}
+
+function statusOf(d) {
+  if (d.state === 'progressing') {
+    const bps = track(d);
+    const part = d.total ? `${fmtBytes(d.received)} / ${fmtBytes(d.total)}` : fmtBytes(d.received);
+    if (d.paused) return { text: 'Duraklatıldı - ' + part };
+    const extra = bps ? ` - ${fmtBytes(bps)}/sn` + (d.total ? ', ' + fmtLeft((d.total - d.received) / bps) : '') : '';
+    return { text: part + extra };
+  }
+  if (d.state === 'completed') return d.exists ? { text: fmtBytes(d.total || d.received) } : { text: 'Silindi veya taşındı' };
+  if (d.state === 'cancelled') return { text: 'İptal edildi' };
+  return { text: 'Başarısız - indirme yarıda kaldı', err: true };
+}
+
+// ---------- Cizim
+function act(label, cmd, id) {
+  const b = document.createElement('button'); b.textContent = label;
+  b.onclick = () => api.call(cmd, id).then(refresh);
+  return b;
+}
+
+function itemEl(d) {
+  const gone = d.state === 'cancelled' || (d.state === 'completed' && !d.exists);
+  const el = document.createElement('div'); el.className = 'dl' + (gone ? ' gone' : '');
+
+  const ic = document.createElement('div'); ic.className = 'ic';
+  if (d.icon) { const im = document.createElement('img'); im.src = d.icon; im.alt = ''; ic.appendChild(im); } else ic.innerHTML = FILE_IC;
+
+  const body = document.createElement('div'); body.className = 'body';
+  const canOpen = d.state === 'completed' && d.exists;
+  const name = document.createElement(canOpen ? 'a' : 'span'); name.className = 'name'; name.textContent = d.name; name.title = d.name;
+  if (canOpen) { name.href = '#'; name.onclick = (e) => { e.preventDefault(); api.call('dl-open', d.id); }; }
+  body.appendChild(name);
+  if (d.url && /^https?:/i.test(d.url)) {
+    const src = document.createElement('a'); src.className = 'src'; src.href = d.url; src.textContent = hostOf(d.url); src.title = d.url;
+    body.appendChild(src);
+  }
+  const st = statusOf(d);
+  const s = document.createElement('div'); s.className = 'status' + (st.err ? ' err' : ''); s.textContent = st.text;
+  body.appendChild(s);
+
+  if (d.state === 'progressing') {
+    const bar = document.createElement('div'); bar.className = 'bar' + (d.total ? '' : ' ind') + (d.paused ? ' paused' : '');
+    const fill = document.createElement('i'); fill.style.width = d.total ? (100 * d.received / d.total).toFixed(1) + '%' : '30%';
+    bar.appendChild(fill); body.appendChild(bar);
+  }
+
+  const acts = document.createElement('div'); acts.className = 'acts';
+  if (canOpen) acts.append(act('Klasörde göster', 'dl-show', d.id));
+  if (d.state === 'progressing') {
+    if (d.paused) { if (d.canResume) acts.append(act('Devam et', 'dl-resume', d.id)); }
+    else acts.append(act('Duraklat', 'dl-pause', d.id));
+    acts.append(act('İptal', 'dl-cancel', d.id));
+  }
+  if ((d.state === 'interrupted' || d.state === 'cancelled' || (d.state === 'completed' && !d.exists)) && d.url) acts.append(act('Tekrar dene', 'dl-retry', d.id));
+  if (d.url) { const c = act('Bağlantıyı kopyala', 'dl-copy', d.id); acts.append(c); }
+  if (acts.children.length) body.appendChild(acts);
+
+  el.append(ic, body);
+  if (d.state !== 'progressing') {
+    const rm = document.createElement('button'); rm.className = 'rm'; rm.innerHTML = X_IC; rm.title = 'Listeden kaldır';
+    rm.onclick = () => api.call('dl-remove', d.id).then(refresh);
+    el.appendChild(rm);
+  }
+  return el;
+}
+
+function render() {
+  const q = query.toLocaleLowerCase('tr');
+  const shown = q ? list.filter((d) => (d.name + ' ' + d.url).toLocaleLowerCase('tr').includes(q)) : list;
+  const box = $('list');
+  if (!shown.length) {
+    const e = document.createElement('div'); e.className = 'empty'; e.innerHTML = EMPTY_IC;
+    const b = document.createElement('div'); b.className = 'big';
+    b.textContent = q ? 'Arama sonucu bulunamadı' : 'İndirilen dosyalar burada görünür';
+    const s = document.createElement('div');
+    s.textContent = q ? `"${query}" ile eşleşen dosya yok.` : 'Dosyalar doğrudan İndirilenler klasörüne kaydedilir.';
+    e.append(b, s);
+    box.replaceChildren(e);
+  } else {
+    const frag = document.createDocumentFragment();
+    let last = null;
+    for (const d of shown) {
+      const lbl = dayLabel(d.t || Date.now());
+      if (lbl !== last) { last = lbl; const h = document.createElement('div'); h.className = 'date'; h.textContent = lbl; frag.appendChild(h); }
+      frag.appendChild(itemEl(d));
+    }
+    box.replaceChildren(frag);
+  }
+  const active = list.filter((d) => d.state === 'progressing').length;
+  $('info').textContent = active ? `${active} dosya indiriliyor` : (list.length ? `${list.length} indirme` : '');
+  $('clearAll').hidden = !list.some((d) => d.state !== 'progressing');
+}
+
+let loading = false, again = false;
+async function refresh() {
+  if (!api) return render();
+  if (loading) { again = true; return; }
+  loading = true;
+  try { list = await api.call('downloads-list'); render(); }
+  finally { loading = false; if (again) { again = false; refresh(); } }
+}
+
+// ---------- Olaylar
+$('q').addEventListener('input', () => { $('sbox').classList.toggle('has', !!$('q').value); query = $('q').value.trim(); render(); });
+$('qx').onclick = (e) => { e.preventDefault(); $('q').value = ''; $('q').dispatchEvent(new Event('input')); $('q').focus(); };
+$('folder').onclick = () => api && api.call('dl-folder');
+$('clearAll').onclick = () => { $('modal').hidden = false; $('mok').focus(); };
+$('mc').onclick = () => { $('modal').hidden = true; };
+$('mok').onclick = () => { $('modal').hidden = true; api.call('dl-clear').then(refresh); };
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) $('modal').hidden = true; });
+$('toHist').onclick = () => api && api.call('open-page', 'history');
+$('clearData').onclick = () => api && api.call('clear-data');
+window.addEventListener('scroll', () => $('hdr').classList.toggle('scrolled', scrollY > 0), { passive: true });
+window.addEventListener('focus', refresh);   // dosya disarida silindiyse guncellensin
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (!$('modal').hidden) $('modal').hidden = true; else if ($('q').value) $('qx').click(); }
+  const typing = document.activeElement && document.activeElement.tagName === 'INPUT';
+  if (!typing && e.key === '/') { e.preventDefault(); $('q').focus(); }
+});
+
+if (api) {
+  api.onUpdate((d) => { applyTheme(d.theme); if (d.changed === 'downloads') refresh(); });
+  api.get().then((d) => applyTheme(d.theme)).catch(() => {});
+}
+refresh();
+</script>
+</body>
+</html>

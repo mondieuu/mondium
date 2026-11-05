@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https: http:">
+<title>Geçmiş</title>
+<style>
+  :root { --bg:#f8fafd; --card:#ffffff; --text:#1f1f1f; --dim:#5f6368; --border:#e3e3e3; --hover:rgba(31,31,31,.06);
+    --accent:#0b57d0; --accent-fg:#fff; --sel:#d3e3fd; --field:#e9eef6; --modal:#ffffff; --danger:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1f1f1f; --card:#282828; --text:#e3e3e3; --dim:#a8abaf; --border:#3c3c3c; --hover:rgba(227,227,227,.08);
+      --accent:#a8c7fa; --accent-fg:#062e6f; --sel:#004a77; --field:#333537; --modal:#2d2f31; --danger:#f2b8b5; }
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  [hidden] { display:none !important; }
+  html, body { min-height:100%; background:var(--bg); color:var(--text); font:13px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  svg { width:20px; height:20px; fill:currentColor; flex:none; }
+  button { font:inherit; color:inherit; cursor:default; }
+  a { color:inherit; text-decoration:none; }
+
+  /* ---------- Ust cubuk ---------- */
+  header { position:sticky; top:0; z-index:5; height:56px; display:flex; align-items:center; background:var(--bg); padding:0 16px 0 0; }
+  header.scrolled { box-shadow:0 1px 2px rgba(0,0,0,.12), 0 1px 3px 1px rgba(0,0,0,.06); }
+  .brand { width:256px; flex:none; padding-left:24px; font-size:22px; font-weight:400; display:flex; align-items:center; gap:14px; }
+  .brand svg { color:var(--accent); width:24px; height:24px; }
+  .search { flex:1; max-width:680px; height:40px; margin:0 auto; display:flex; align-items:center; gap:10px; padding:0 8px 0 14px;
+    border-radius:20px; background:var(--field); color:var(--dim); }
+  .search:focus-within { background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .search input { flex:1; height:100%; border:0; outline:none; background:none; color:var(--text); font-size:15px; }
+  .search .x { width:28px; height:28px; border:0; background:none; border-radius:50%; display:none; align-items:center; justify-content:center; color:var(--dim); }
+  .search .x svg { width:18px; height:18px; }
+  .search .x:hover { background:var(--hover); }
+  .search.has .x { display:flex; }
+  .spacer { width:256px; flex:none; }
+
+  /* Secim cubugu (ust cubugun yerine gecer) */
+  .selbar { position:absolute; inset:0; display:none; align-items:center; gap:8px; padding:0 24px; background:var(--accent); color:var(--accent-fg); }
+  .selbar.show { display:flex; }
+  .selbar .n { flex:1; font-size:16px; padding-left:8px; }
+  .selbar button { height:36px; padding:0 16px; border-radius:18px; border:0; background:none; font-weight:500; color:inherit; }
+  .selbar button:hover { background:rgba(255,255,255,.14); }
+  .selbar .ib { width:40px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:50%; }
+
+  /* ---------- Yan menu ---------- */
+  nav { position:fixed; top:56px; left:0; width:256px; padding:8px 12px 0 0; }
+  nav a, nav button { width:100%; height:40px; display:flex; align-items:center; gap:16px; padding:0 24px; border:0; background:none;
+    border-radius:0 20px 20px 0; font-size:14px; text-align:left; }
+  nav a:hover, nav button:hover { background:var(--hover); }
+  nav .on { background:var(--sel); font-weight:600; color:var(--text); }
+  nav .on:hover { background:var(--sel); }
+  nav svg { color:var(--dim); }
+  nav .on svg { color:var(--accent); }
+  nav .ext { width:16px; height:16px; margin-left:auto; }
+  nav .sep { height:1px; background:var(--border); margin:8px 0 8px 24px; }
+  @media (max-width: 900px) { nav, .spacer { display:none; } .brand { width:auto; padding-right:16px; } }
+
+  /* ---------- Liste ---------- */
+  main { margin-left:256px; padding:8px 24px 48px; }
+  @media (max-width: 900px) { main { margin-left:0; } }
+  .wrap { max-width:960px; margin:0 auto; }
+  .tools { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:4px 0 12px; min-height:36px; }
+  .tools .info { flex:1; color:var(--dim); }
+  .btn { height:36px; padding:0 16px; border-radius:18px; border:1px solid var(--border); background:none; color:var(--accent); font-weight:500; }
+  .btn:hover { background:var(--hover); }
+  .btn.pri { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .btn.pri:hover { filter:brightness(1.08); }
+  .btn.danger { background:var(--danger); border-color:var(--danger); color:var(--card); }
+
+  .day { background:var(--card); border-radius:12px; margin-bottom:16px; padding:8px 0; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  .day h2 { font-size:14px; font-weight:600; padding:12px 20px 8px; }
+  .row { position:relative; height:44px; display:flex; align-items:center; gap:4px; padding:0 8px 0 10px; }
+  .row:hover { background:var(--hover); }
+  .row.sel { background:color-mix(in srgb, var(--sel) 60%, transparent); }
+  .ck { width:40px; height:40px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .ck input { width:16px; height:16px; accent-color:var(--accent); opacity:0; }
+  .row:hover .ck input, .row.sel .ck input, body.selecting .ck input { opacity:1; }
+  .time { width:64px; flex:none; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .fav { width:16px; height:16px; flex:none; margin-right:12px; display:flex; align-items:center; justify-content:center; color:var(--dim); }
+  .fav img { width:16px; height:16px; border-radius:2px; }
+  .fav svg { width:16px; height:16px; }
+  .link { flex:1; min-width:0; display:flex; align-items:baseline; gap:10px; overflow:hidden; }
+  .link .t { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:14px; }
+  .link .d { flex:none; max-width:40%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--dim); }
+  .link:hover .t { text-decoration:underline; }
+  .more { width:36px; height:36px; flex:none; border:0; border-radius:50%; background:none; display:flex; align-items:center; justify-content:center; color:var(--dim); opacity:0; }
+  .row:hover .more, .more.open { opacity:1; }
+  .more:hover { background:var(--hover); }
+  mark { background:none; color:inherit; font-weight:700; }
+
+  .empty { text-align:center; color:var(--dim); padding:96px 16px; }
+  .empty svg { width:96px; height:96px; color:var(--border); margin-bottom:16px; }
+  .empty .big { font-size:16px; color:var(--text); margin-bottom:6px; }
+  .note { display:flex; align-items:center; gap:10px; color:var(--dim); font-size:12px; padding:8px 4px 0; }
+  .note svg { width:16px; height:16px; }
+  #sentinel { height:1px; }
+  .loading { text-align:center; color:var(--dim); padding:16px; }
+
+  /* ---------- Acilir menu ---------- */
+  .pop { position:fixed; z-index:20; min-width:220px; background:var(--modal); border-radius:8px; padding:8px 0;
+    box-shadow:0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.3); }
+  .pop[hidden] { display:none; }
+  .pop button { width:100%; height:36px; border:0; background:none; text-align:left; padding:0 16px; font-size:13px; display:flex; align-items:center; gap:12px; }
+  .pop button:hover { background:var(--hover); }
+  .pop svg { width:18px; height:18px; color:var(--dim); }
+
+  /* ---------- Onay penceresi ---------- */
+  #modal { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; }
+  #modal[hidden] { display:none; }
+  .dlg { width:min(440px, 92vw); background:var(--modal); border-radius:16px; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,.3); }
+  .dlg h3 { font-size:20px; font-weight:400; margin-bottom:12px; }
+  .dlg p { color:var(--dim); font-size:14px; line-height:1.5; }
+  .dlg .row2 { display:flex; justify-content:flex-end; gap:8px; margin-top:24px; }
+
+  .toast { position:fixed; left:24px; bottom:24px; z-index:25; display:flex; align-items:center; gap:24px; padding:0 8px 0 16px; height:48px;
+    border-radius:8px; background:#303030; color:#f2f2f2; box-shadow:0 2px 8px rgba(0,0,0,.3); transform:translateY(120px); transition:transform .2s; }
+  .toast.show { transform:none; }
+  .toast button { height:36px; padding:0 12px; border:0; border-radius:18px; background:none; color:#a8c7fa; font-weight:600; }
+  .toast button:hover { background:rgba(255,255,255,.08); }
+</style>
+</head>
+<body>
+  <header id="hdr">
+    <div class="brand"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>Geçmiş</div>
+    <label class="search" id="sbox">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <input id="q" placeholder="Geçmişte ara" autocomplete="off" spellcheck="false">
+      <button class="x" id="qx" title="Aramayı temizle"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </label>
+    <div class="spacer"></div>
+    <div class="selbar" id="selbar">
+      <button class="ib" id="selx" title="Seçimi kaldır"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+      <span class="n" id="seln">0 öğe seçildi</span>
+      <button id="selall">Tümünü seç</button>
+      <button id="seldel">Sil</button>
+    </div>
+  </header>
+
+  <nav>
+    <a class="on" href="#"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>Geçmiş</a>
+    <button id="toDl"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>İndirilenler</button>
+    <div class="sep"></div>
+    <button id="clearData"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Tarama verilerini temizle</button>
+  </nav>
+
+  <main>
+    <div class="wrap">
+      <div class="tools">
+        <span class="info" id="info"></span>
+        <button class="btn" id="clearAll">Tüm geçmişi sil</button>
+      </div>
+      <div id="list"></div>
+      <div id="sentinel"></div>
+      <div class="note"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/></svg>Geçmiş yalnızca bu bilgisayarda saklanır, hiçbir yere gönderilmez. 90 günden eski kayıtlar kendiliğinden silinir.</div>
+    </div>
+  </main>
+
+  <div class="pop" id="pop" hidden>
+    <button id="popSite"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>Bu siteden daha fazlası</button>
+    <button id="popCopy"><svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>Bağlantıyı kopyala</button>
+    <button id="popDel"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Geçmişten kaldır</button>
+  </div>
+
+  <div id="modal" hidden>
+    <div class="dlg">
+      <h3 id="mt">Tüm geçmiş silinsin mi?</h3>
+      <p id="mp"></p>
+      <div class="row2">
+        <button class="btn" id="mc">İptal</button>
+        <button class="btn danger" id="mok">Sil</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"><span id="toastT"></span></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const api = window.pageApi;
+const GLOBE = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>';
+const DOTS = '<svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>';
+const EMPTY_IC = '<svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>';
+const PAGE = 150;
+
+let items = [], more = false, total = 0, query = '', busy = false;
+const selected = new Set();
+let lastClicked = null;
+
+// ---------- Tema (yeni sekme sayfasiyla ayni mantik)
+function applyTheme(t) {
+  const st = document.documentElement.style;
+  for (const n of ['--bg', '--accent', '--card', '--modal', '--field', '--sel']) st.removeProperty(n);
+  if (!t) return;
+  st.setProperty('--bg', t.page);
+  st.setProperty('--accent', t.accent);
+  st.setProperty('--sel', `color-mix(in srgb, ${t.accent} 28%, transparent)`);
+  if (t.mode === 'dark') { st.setProperty('--card', t.toolbar); st.setProperty('--modal', t.toolbar); st.setProperty('--field', t.toolbar); }
+}
+
+// ---------- Yardimcilar
+const fmtTime = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
+const fmtDay = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' });
+function dayLabel(t) {
+  const d = new Date(t); d.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - d) / 864e5);
+  const full = fmtDay.format(t);
+  return diff === 0 ? 'Bugün - ' + full : diff === 1 ? 'Dün - ' + full : full;
+}
+const dayKey = (t) => new Date(t).toDateString();
+function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
+function highlight(el, text) {
+  if (!query) { el.textContent = text; return; }
+  const words = query.toLocaleLowerCase('tr').split(/\s+/).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!words.length) { el.textContent = text; return; }
+  // Tek yakalama grubu: split sonucunda tek sirali parcalar eslesmedir
+  text.split(new RegExp('(' + words.join('|') + ')', 'i')).forEach((part, i) => {
+    if (!part) return;
+    if (i % 2) { const m = document.createElement('mark'); m.textContent = part; el.appendChild(m); }
+    else el.appendChild(document.createTextNode(part));
+  });
+}
+
+// ---------- Cizim
+function rowEl(h) {
+  const r = document.createElement('div');
+  r.className = 'row' + (selected.has(h.t) ? ' sel' : '');
+  r.dataset.t = h.t;
+
+  const ck = document.createElement('label'); ck.className = 'ck';
+  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(h.t);
+  cb.title = 'Seç';
+  cb.addEventListener('click', (e) => toggleSel(h.t, e.shiftKey));
+  ck.appendChild(cb);
+
+  const tm = document.createElement('span'); tm.className = 'time'; tm.textContent = fmtTime.format(h.t);
+
+  const fav = document.createElement('span'); fav.className = 'fav';
+  if (h.favicon && /^(https?|data):/.test(h.favicon)) {
+    const im = document.createElement('img'); im.loading = 'lazy'; im.alt = ''; im.referrerPolicy = 'no-referrer'; im.src = h.favicon;
+    im.onerror = () => { fav.innerHTML = GLOBE; };
+    fav.appendChild(im);
+  } else fav.innerHTML = GLOBE;
+
+  const a = document.createElement('a'); a.className = 'link'; a.href = h.url; a.title = (h.title || h.url) + '\n' + h.url;
+  const t = document.createElement('span'); t.className = 't'; highlight(t, h.title || h.url);
+  const d = document.createElement('span'); d.className = 'd'; highlight(d, hostOf(h.url));
+  a.append(t, d);
+
+  const mb = document.createElement('button'); mb.className = 'more'; mb.innerHTML = DOTS; mb.title = 'Diğer işlemler';
+  mb.addEventListener('click', (e) => { e.stopPropagation(); openPop(mb, h); });
+
+  r.append(ck, tm, fav, a, mb);
+  return r;
+}
+
+function render() {
+  const list = $('list');
+  if (!items.length) {
+    list.innerHTML = '';
+    const e = document.createElement('div'); e.className = 'empty';
+    e.innerHTML = EMPTY_IC;
+    const b = document.createElement('div'); b.className = 'big';
+    b.textContent = query ? 'Arama sonucu bulunamadı' : 'Tarama geçmişiniz burada görünür';
+    const s = document.createElement('div');
+    s.textContent = query ? `"${query}" ile eşleşen sayfa yok.` : 'Ziyaret ettiğiniz sayfalar tarihe göre burada listelenir.';
+    e.append(b, s);
+    list.appendChild(e);
+  } else {
+    const frag = document.createDocumentFragment();
+    let card = null, key = null;
+    for (const h of items) {
+      const k = dayKey(h.t);
+      if (k !== key) {
+        key = k;
+        card = document.createElement('section'); card.className = 'day';
+        const hd = document.createElement('h2'); hd.textContent = dayLabel(h.t);
+        card.appendChild(hd);
+        frag.appendChild(card);
+      }
+      card.appendChild(rowEl(h));
+    }
+    list.replaceChildren(frag);
+    if (more) { const l = document.createElement('div'); l.className = 'loading'; l.textContent = 'Yükleniyor...'; list.appendChild(l); }
+  }
+  $('info').textContent = query ? `${items.length}${more ? '+' : ''} sonuç` : (total ? `${total} kayıt` : '');
+  $('clearAll').hidden = !total;
+  renderSel();
+}
+
+function renderSel() {
+  const n = selected.size;
+  document.body.classList.toggle('selecting', n > 0);
+  $('selbar').classList.toggle('show', n > 0);
+  $('seln').textContent = `${n} öğe seçildi`;
+  for (const r of document.querySelectorAll('.row')) {
+    const on = selected.has(Number(r.dataset.t));
+    r.classList.toggle('sel', on);
+    const cb = r.querySelector('input'); if (cb) cb.checked = on;
+  }
+}
+
+function toggleSel(t, range) {
+  if (range && lastClicked !== null) {
+    const a = items.findIndex((h) => h.t === lastClicked), b = items.findIndex((h) => h.t === t);
+    if (a >= 0 && b >= 0) {
+      const on = !selected.has(t);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) on ? selected.add(items[i].t) : selected.delete(items[i].t);
+      lastClicked = t; renderSel(); return;
+    }
+  }
+  selected.has(t) ? selected.delete(t) : selected.add(t);
+  lastClicked = t;
+  renderSel();
+}
+
+// ---------- Veri
+async function load(reset) {
+  if (!api || busy) return;
+  busy = true;
+  try {
+    const before = reset || !items.length ? undefined : items[items.length - 1].t;
+    // Canli guncellemede ayni miktarda kayit tekrar istenir, kaydirma yeri bozulmaz
+    const limit = reset ? Math.max(PAGE, items.length) : PAGE;
+    const r = await api.call('history-list', { q: query, before, limit });
+    items = reset ? r.items : items.concat(r.items);
+    more = r.more; total = r.total;
+    const ids = new Set(items.map((h) => h.t));
+    for (const t of [...selected]) if (!ids.has(t)) selected.delete(t);
+    render();
+  } finally { busy = false; }
+}
+
+new IntersectionObserver((en) => { if (en[0].isIntersecting && more) load(false); }, { rootMargin: '600px' }).observe($('sentinel'));
+
+// ---------- Arama
+let qTimer = null;
+$('q').addEventListener('input', () => {
+  $('sbox').classList.toggle('has', !!$('q').value);
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { query = $('q').value.trim(); items = []; selected.clear(); window.scrollTo(0, 0); load(true); }, 150);
+});
+$('qx').onclick = (e) => { e.preventDefault(); $('q').value = ''; $('q').dispatchEvent(new Event('input')); $('q').focus(); };
+function searchFor(s) { $('q').value = s; $('q').dispatchEvent(new Event('input')); }
+
+// ---------- Acilir menu
+let popItem = null, popBtn = null;
+function openPop(btn, h) {
+  closePop();
+  popItem = h; popBtn = btn; btn.classList.add('open');
+  const p = $('pop'); p.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const w = p.offsetWidth, ht = p.offsetHeight;
+  p.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+  p.style.top = (r.bottom + ht + 8 > innerHeight ? r.top - ht - 4 : r.bottom + 4) + 'px';
+}
+function closePop() { $('pop').hidden = true; if (popBtn) popBtn.classList.remove('open'); popItem = popBtn = null; }
+$('popSite').onclick = () => { const h = popItem; closePop(); if (h) searchFor(hostOf(h.url)); };
+$('popCopy').onclick = () => { const h = popItem; closePop(); if (h) api.call('copy', h.url).then(() => toast('Bağlantı kopyalandı')); };
+$('popDel').onclick = () => { const h = popItem; closePop(); if (h) removeItems([h.t]); };
+document.addEventListener('mousedown', (e) => { if (!$('pop').hidden && !$('pop').contains(e.target)) closePop(); });
+window.addEventListener('scroll', () => { closePop(); $('hdr').classList.toggle('scrolled', scrollY > 0); }, { passive: true });
+
+// ---------- Silme
+async function removeItems(ts) {
+  if (!ts.length) return;
+  items = items.filter((h) => !ts.includes(h.t));
+  total = Math.max(0, total - ts.length);
+  for (const t of ts) selected.delete(t);
+  render();
+  await api.call('history-remove', ts);
+  toast(ts.length === 1 ? 'Geçmişten kaldırıldı' : `${ts.length} sayfa geçmişten kaldırıldı`);
+}
+$('selx').onclick = () => { selected.clear(); renderSel(); };
+$('selall').onclick = () => { for (const h of items) selected.add(h.t); renderSel(); };
+$('seldel').onclick = () => {
+  const n = selected.size;
+  confirmBox('Seçilen öğeler kaldırılsın mı?', `${n} sayfa geçmişten kaldırılacak.`, 'Kaldır', () => removeItems([...selected]));
+};
+$('clearAll').onclick = () => confirmBox('Tüm geçmiş silinsin mi?',
+  'Ziyaret ettiğiniz bütün sayfaların kaydı silinir. Çerezler ve oturumlarınız etkilenmez; onlar için "Tarama verilerini temizle"yi kullanın.',
+  'Tümünü sil', async () => { await api.call('history-clear'); items = []; total = 0; selected.clear(); render(); toast('Geçmiş silindi'); });
+
+// ---------- Onay penceresi ve bildirim
+let onOk = null;
+function confirmBox(title, text, okLabel, fn) {
+  $('mt').textContent = title; $('mp').textContent = text; $('mok').textContent = okLabel;
+  onOk = fn; $('modal').hidden = false; $('mok').focus();
+}
+const closeModal = () => { $('modal').hidden = true; onOk = null; };
+$('mc').onclick = closeModal;
+$('mok').onclick = () => { const f = onOk; closeModal(); if (f) f(); };
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) closeModal(); });
+let toastTimer = null;
+function toast(msg) {
+  $('toastT').textContent = msg; $('toast').classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3000);
+}
+
+// ---------- Klavye
+document.addEventListener('keydown', (e) => {
+  if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+  if (e.key === 'Escape') { if (!$('pop').hidden) closePop(); else if (selected.size) { selected.clear(); renderSel(); } else if (document.activeElement === $('q') && $('q').value) $('qx').click(); return; }
+  const typing = document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.type !== 'checkbox';
+  if (!typing && e.key === '/') { e.preventDefault(); $('q').focus(); }
+  if (!typing && e.key === 'Delete' && selected.size) $('seldel').click();
+});
+
+// ---------- Yan menu
+$('toDl').onclick = () => api && api.call('open-page', 'downloads');
+$('clearData').onclick = () => api && api.call('clear-data');
+
+// ---------- Baslat
+if (api) {
+  api.onUpdate((d) => { applyTheme(d.theme); if (d.changed === 'history' && !busy) load(true); });
+  api.get().then((d) => applyTheme(d.theme)).catch(() => {});
+  load(true);
+  $('q').focus();
+} else render();
+</script>
+</body>
+</html>

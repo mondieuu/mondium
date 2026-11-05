@@ -1,0 +1,54 @@
+'use strict';
+// Gelistirme modunda Mondium'u "Mondium.exe" olarak baslatir.
+// Duz electron.exe ile calisinca Gorev Yoneticisi'nde "Electron" yaziyor ve Electron simgesi cikiyordu.
+// Electron klasorune bir kez Mondium.exe kopyalanir, adi ve simgesi degistirilir (Electron surumu degisince yenilenir).
+// Kurulum dosyasindaki (npm run dist:win) surumde bu zaten electron-builder tarafindan yapiliyor.
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+
+const root = path.join(__dirname, '..');
+const electronExe = require('electron');            // node_modules/electron/dist/electron.exe yolu
+let exe = electronExe;
+
+if (process.platform === 'win32') {
+  const dir = path.dirname(electronExe);
+  const target = path.join(dir, 'Mondium.exe');
+  const stampFile = target + '.surum';
+  const icon = path.join(root, 'build', 'icon.ico');
+  const stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs].join('|');
+  try {
+    if (!fs.existsSync(target) || !fs.existsSync(stampFile) || fs.readFileSync(stampFile, 'utf8') !== stamp) {
+      console.log('Mondium.exe hazirlaniyor (bir kez)...');
+      const ResEdit = require('resedit');
+      const pe = ResEdit.NtExecutable.from(fs.readFileSync(electronExe), { ignoreCert: true });
+      const res = ResEdit.NtExecutableResource.from(pe);
+      // Simge
+      const groups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
+      const ico = ResEdit.Data.IconFile.from(fs.readFileSync(icon));
+      const g = groups[0] || { id: 1, lang: 1033 };
+      ResEdit.Resource.IconGroupEntry.replaceIconsForResource(res.entries, g.id, g.lang, ico.icons.map((i) => i.data));
+      // Gorev Yoneticisi'nde gorunen ad
+      const vi = ResEdit.Resource.VersionInfo.fromEntries(res.entries)[0];
+      if (vi) {
+        const langs = vi.getAllLanguagesForStringValues();
+        for (const l of langs.length ? langs : [{ lang: 1033, codepage: 1200 }]) {
+          vi.setStringValues(l, { FileDescription: 'Mondium', ProductName: 'Mondium', InternalName: 'Mondium', OriginalFilename: 'Mondium.exe', CompanyName: 'Mondium' });
+        }
+        vi.outputToResourceEntries(res.entries);
+      }
+      res.outputResource(pe);
+      fs.writeFileSync(target, Buffer.from(pe.generate()));
+      fs.writeFileSync(stampFile, stamp);
+    }
+    exe = target;
+  } catch (e) {
+    console.warn('Mondium.exe hazirlanamadi, Electron ile baslatiliyor:', e.message);
+  }
+}
+
+const env = { ...process.env };
+delete env.ELECTRON_RUN_AS_NODE;
+const child = spawn(exe, [root, ...process.argv.slice(2)], { stdio: 'inherit', env, windowsHide: false });
+child.on('close', (code) => process.exit(code || 0));
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!child.killed) child.kill(sig); });

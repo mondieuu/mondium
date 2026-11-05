@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Hoş geldiniz</title>
+<style>
+  :root { --bg:#ffffff; --text:#1f1f1f; --dim:#5f6368; --card:#f1f3f4; --border:#dadce0; --accent:#0b57d0; --accent-fg:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#202124; --text:#e8eaed; --dim:#9aa0a6; --card:#2d2f31; --border:#5f6368; --accent:#a8c7fa; --accent-fg:#062e6f; }
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { min-height:100%; background:var(--bg); color:var(--text); font-family:"Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    transition:background .25s; user-select:none; }
+  main { max-width:760px; margin:0 auto; padding:9vh 24px 48px; text-align:center; }
+  .logo { width:72px; height:72px; margin:0 auto 22px; border-radius:20px; background:linear-gradient(135deg, #2f6df6, #4fc3f7);
+    display:flex; align-items:center; justify-content:center; }
+  .logo span { width:34px; height:34px; border:7px solid #fff; border-right-color:transparent; border-radius:50%; transform:rotate(-45deg); }
+  h1 { font-size:32px; font-weight:400; margin-bottom:10px; }
+  p.sub { color:var(--dim); font-size:15px; margin-bottom:34px; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; text-align:left; }
+  .card { border:2px solid transparent; border-radius:12px; padding:8px; background:var(--card); cursor:default; transition:transform .12s; }
+  .card:hover { transform:translateY(-2px); }
+  .card.on { border-color:var(--accent); }
+  .pv { height:78px; border-radius:7px; overflow:hidden; display:flex; flex-direction:column; border:1px solid rgba(0,0,0,.08); }
+  .pv .f { height:16px; display:flex; align-items:flex-end; padding-left:8px; }
+  .pv .f i { width:42px; height:11px; border-radius:4px 4px 0 0; }
+  .pv .t { height:16px; display:flex; align-items:center; padding:0 6px; }
+  .pv .t i { flex:1; height:8px; border-radius:4px; }
+  .pv .b { flex:1; display:flex; align-items:center; justify-content:center; }
+  .pv .b i { width:50%; height:8px; border-radius:4px; }
+  .nm { display:flex; align-items:center; justify-content:space-between; margin-top:8px; padding:0 2px; font-size:13px; }
+  .nm .ck { width:18px; height:18px; border-radius:50%; background:var(--accent); display:none; align-items:center; justify-content:center; }
+  .nm .ck svg { width:12px; height:12px; fill:var(--accent-fg); }
+  .card.on .ck { display:flex; }
+  .actions { margin-top:36px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  #go { height:40px; padding:0 32px; border-radius:20px; border:0; background:var(--accent); color:var(--accent-fg); font-size:14px; font-weight:500; }
+  #go:hover { filter:brightness(1.08); }
+  .hint { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+  <main>
+    <div class="logo"><span></span></div>
+    <h1>Mondium'a hoş geldiniz</h1>
+    <p class="sub">Başlamak için bir tema seçin.</p>
+    <div id="grid"></div>
+    <div class="actions">
+      <button id="go">Başla</button>
+      <span class="hint">Temayı daha sonra ⋮ → Tema menüsünden değiştirebilirsiniz.</span>
+    </div>
+  </main>
+<script>
+'use strict';
+const api = window.pageApi;
+const CHECK = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+const BASE = {
+  light: { frame: '#dfe3e7', toolbar: '#ffffff', body: '#ffffff', bar: '#edf2fa', tab: '#ffffff' },
+  dark: { frame: '#1f1f1f', toolbar: '#3c3c3c', body: '#202124', bar: '#282828', tab: '#3c3c3c' }
+};
+let data = null;
+
+function preview(t) {
+  const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const mode = t.mode === 'system' ? (sysDark ? 'dark' : 'light') : t.mode;
+  const b = BASE[mode];
+  const frame = t.frame || b.frame, toolbar = t.toolbar || b.toolbar;
+  const bar = t.frame ? (mode === 'dark' ? t.frame : '#ffffff') : b.bar;
+  const body = mode === 'dark' ? (t.frame ? '#161b22' : b.body) : '#ffffff';
+  const pv = document.createElement('div'); pv.className = 'pv';
+  if (t.mode === 'system') pv.style.background = 'linear-gradient(135deg, #ffffff 50%, #202124 50%)';
+  pv.innerHTML = `<div class="f" style="background:${frame}"><i style="background:${toolbar}"></i></div>
+    <div class="t" style="background:${toolbar}"><i style="background:${bar}"></i></div>
+    <div class="b" style="background:${t.mode === 'system' ? 'transparent' : body}"><i style="background:${t.accent || (mode === 'dark' ? '#a8c7fa' : '#0b57d0')}"></i></div>`;
+  return pv;
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.replaceChildren(...data.themes.map((t) => {
+    const c = document.createElement('div');
+    c.className = 'card' + (t.key === data.themeKey ? ' on' : '');
+    const nm = document.createElement('div'); nm.className = 'nm';
+    const label = document.createElement('span'); label.textContent = t.name;
+    const ck = document.createElement('span'); ck.className = 'ck'; ck.innerHTML = CHECK;
+    nm.append(label, ck);
+    c.append(preview(t), nm);
+    c.onclick = () => { data.themeKey = t.key; render(); api.call('theme', t.key); };
+    return c;
+  }));
+  const th = data.theme;
+  document.documentElement.style.setProperty('--bg', th ? th.page : '');
+  if (th) document.documentElement.style.setProperty('--accent', th.accent); else document.documentElement.style.removeProperty('--accent');
+  if (!th) document.documentElement.style.removeProperty('--bg');
+}
+
+document.getElementById('go').onclick = () => api && api.call('welcome-done');
+if (api) {
+  api.onUpdate((d) => { data = d; render(); });
+  api.get().then((d) => { data = d; render(); });
+}
+</script>
+</body>
+</html>
