@@ -21,6 +21,7 @@ const fsp = require('fs/promises');
 const { pathToFileURL } = require('url');
 const { ElectronBlocker } = require('@ghostery/adblocker-electron');
 const { createSiteData } = require('./site-data');
+const bookmarkImport = require('./bookmark-import');
 
 // Test icin ayri profil klasoru: kullanicinin acik Mondium'una ve verilerine dokunmaz (tek kopya kilidi de klasore bagli)
 if (process.env.MONDIUM_PROFILE) app.setPath('userData', process.env.MONDIUM_PROFILE);
@@ -430,13 +431,13 @@ async function startUBlock() {
   if (process.env.MONDIUM_NO_UBO || settings.adblockEngine === 'hafif' || !fs.existsSync(path.join(UBO_DIR, 'manifest.json'))) return false;
   await eceReady;   // arac cubugu simgesi icin uzanti kutuphanesi once kurulmali
   try { mainSes.registerPreloadScript({ id: 'mondium-mv2-bridge', type: 'frame', filePath: path.join(__dirname, 'mv2-bridge.js') }); } catch {}
-  const e = await extApi().loadExtension(UBO_DIR, { allowFileAccess: false });
+  const e = await Promise.race([extApi().loadExtension(UBO_DIR, { allowFileAccess: false }), timeout(20000).then(() => { throw new Error('uBO yuklenemedi (20 sn)'); })]);
   uboId = e.id;
   // uBO filtreleri onbellekten yukleyip hazir olana kadar sayfalar bekler (ilk istekler engelsiz kacmasin). En fazla 10 sn.
   const t0 = Date.now();
   while (Date.now() - t0 < 10000) {
     const bg = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getURL().startsWith(`chrome-extension://${uboId}/background.html`));
-    if (bg) { try { if (await bg.executeJavaScript('!!(self.µBlock && self.µBlock.readyToFilter)')) break; } catch {} }
+    if (bg) { try { if (await Promise.race([bg.executeJavaScript('!!(self.µBlock && self.µBlock.readyToFilter)'), timeout(1000)])) break; } catch {} }
     await new Promise((r) => setTimeout(r, 100));
   }
   console.log(`uBlock Origin ${e.version} hazir (${Date.now() - t0} ms)`);
@@ -546,8 +547,18 @@ function attachBlocker(b) {
   forEachWin(() => pushState());
 }
 
+// Acilista ilk istekler engelsiz kacmasin diye engelleyici kisa sure beklenir. Bekleme ASLA kullaniciyi kilitlememeli:
+// en fazla 3 sn, ve bir kez dolunca (ya da hazir olunca) bir daha hic beklenmez. (Eskiden her gezinmede 15 sn'ye kadar
+// bekleyebiliyordu: engelleyici takilirsa adres cubugunda Enter "hicbir sey yapmiyor" gibi gorunuyordu.)
+let mainBlockSettled = false;
+mainBlockReady.then(() => { mainBlockSettled = true; });
+setTimeout(() => { mainBlockSettled = true; }, 12000);
+const timeout = (ms) => new Promise((r) => setTimeout(r, ms));
 async function go(wc, url) {
-  if (!url.startsWith('file:')) await Promise.race([wc.session === mainSes ? mainBlockReady : ensureGhostery(), new Promise((r) => setTimeout(r, 15000))]);
+  if (!url.startsWith('file:')) {
+    if (wc.session === mainSes) { if (!mainBlockSettled) await Promise.race([mainBlockReady, timeout(3000)]); }
+    else await Promise.race([ensureGhostery(), timeout(3000)]);
+  }
   if (wc.isDestroyed()) return;
   const p = prepareUrl(wc, url);
   wc.loadURL(p.url, { userAgent: p.ua }).catch(() => {});
@@ -1363,7 +1374,7 @@ function pushState() {
     findOpen,
     bookmarked: t ? isBookmarked(t.url) : false,
     canBookmark: !!t && !isInternal(t.url),
-    bookmarks: settings.bookmarksBar ? settings.bookmarks.map((b) => ({ url: b.url, title: b.title, favicon: b.favicon })) : [],
+    bookmarks: settings.bookmarksBar ? barItems() : [],
     bookmarksBar: settings.bookmarksBar,
     fullUrl: settings.fullUrl,
     searchName: (SEARCH_ENGINES[settings.searchEngine] || SEARCH_ENGINES.google).name,
@@ -1439,7 +1450,14 @@ function openOmni() {
 
 function openUrl(url, where) {
   if (where === 'tab') newTab(url, true, activeId);
-  else withActive((wc, t) => { t.url = toUrl(url); go(wc, t.url); wc.focus(); });
+  else {
+    const t = activeTab();
+    if (!t) { newTab(url); return; }
+    t.url = toUrl(url);
+    if (!t.view) { activateTab(t.id); return; }   // uyuyan sekme: activateTab sayfayi olusturup t.url'ye gider
+    go(t.view.webContents, t.url);
+    t.view.webContents.focus();
+  }
 }
 
 ipcMain.on('ui', (e, cmd, arg) => {
@@ -1485,6 +1503,8 @@ ipcMain.on('ui', (e, cmd, arg) => {
     case 'bookmark-toggle': toggleBookmark(); break;
     case 'bookmark-open': if (arg && arg.url) openUrl(arg.url, arg.newTab ? 'tab' : null); break;
     case 'bookmark-menu': showBookmarkMenu(arg); break;
+    case 'bookmark-folder': showBookmarkFolder(arg); break;
+    case 'bookmark-folder-menu': showBookmarkFolderMenu(arg); break;
     case 'bar-menu': popAt([{ label: 'Yer işaretleri çubuğunu gizle', click: toggleBookmarksBar }], arg); break;
     case 'move-tab': {
       const from = tabs.findIndex((t) => t.id === arg.id);
@@ -1642,7 +1662,8 @@ function menuData() {
     bookmarked: t ? isBookmarked(t.url) : false,
     canBookmark: !!t && !isInternal(t.url),
     bookmarksBar: settings.bookmarksBar,
-    bookmarks: settings.bookmarks.slice(0, 40).map((b, i) => ({ i, title: b.title || b.url, favicon: b.favicon })),
+    bookmarks: settings.bookmarks.map((b, i) => ({ i, title: b.title || b.url, favicon: b.favicon, path: b.path })).filter((b) => !b.path || !b.path.length).slice(0, 40),
+    bookmarkFolders: bookmarkGroups().map((g) => g.name),
     engine: settings.searchEngine,
     theme: settings.theme,
     themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name })),
@@ -1671,6 +1692,7 @@ function menuAction(id, arg) {
     case 'pip': withActive((wc) => pictureInPicture(wc)); break;
     case 'bookmark-toggle': toggleBookmark(); break;
     case 'bookmarks-bar': toggleBookmarksBar(); break;
+    case 'bookmarks-import': openSettingsAt('yer-isaretleri'); break;
     case 'bookmark-open': { const b = settings.bookmarks[arg]; if (b) openUrl(b.url); break; }
     case 'zoom-in': zoom(0.5); refresh(); break;
     case 'zoom-out': zoom(-0.5); refresh(); break;
@@ -2080,6 +2102,87 @@ function showShieldMenu(pos) {
   ], pos);
 }
 
+// ---------------------------------------------------------------- Yer isareti klasorleri (ice aktarilanlar) ve aktarma
+// Veri modeli duz liste kaliyor: ice aktarilan yer isaretinde path = ['Google Chrome', 'Is', ...]. Cubukta path[0] tek
+// klasor dugmesi olarak gorunur, tiklayinca alt klasorleriyle yerel menu acilir.
+function barItems() {
+  const out = [], seen = new Set();
+  settings.bookmarks.forEach((b, i) => {
+    if (b.path && b.path.length) {
+      const g = b.path[0];
+      if (seen.has(g)) return;
+      seen.add(g);
+      out.push({ folder: g, count: settings.bookmarks.filter((x) => x.path && x.path[0] === g).length });
+    } else out.push({ i, url: b.url, title: b.title, favicon: b.favicon });
+  });
+  return out;
+}
+function bookmarkGroups() {
+  const m = new Map();
+  for (const b of settings.bookmarks) if (b.path && b.path.length) m.set(b.path[0], (m.get(b.path[0]) || 0) + 1);
+  return [...m].map(([name, count]) => ({ name, count }));
+}
+const menuLabel = (s) => String(s || '').slice(0, 70).replace(/&/g, '&&');
+function folderMenuItems(group) {
+  const root = { dirs: new Map(), items: [] };
+  for (const b of settings.bookmarks) {
+    if (!b.path || b.path[0] !== group) continue;
+    let n = root;
+    for (const d of b.path.slice(1)) { if (!n.dirs.has(d)) n.dirs.set(d, { dirs: new Map(), items: [] }); n = n.dirs.get(d); }
+    n.items.push(b);
+  }
+  const build = (n) => [
+    ...[...n.dirs].map(([name, c]) => ({ label: menuLabel(name), submenu: build(c) })),
+    ...(n.dirs.size && n.items.length ? [{ type: 'separator' }] : []),
+    ...n.items.slice(0, 500).map((b) => ({ label: menuLabel(b.title || b.url), click: () => openUrl(b.url) }))
+  ];
+  const items = build(root);
+  return items.length ? items : [{ label: '(boş)', enabled: false }];
+}
+function showBookmarkFolder(arg) {
+  if (!arg || typeof arg.folder !== 'string') return;
+  popAt(folderMenuItems(arg.folder), arg);
+}
+function showBookmarkFolderMenu(arg) {
+  if (!arg || typeof arg.folder !== 'string') return;
+  const g = arg.folder;
+  popAt([
+    { label: 'Tümünü yeni sekmelerde aç', click: () => { const l = settings.bookmarks.filter((b) => b.path && b.path[0] === g).slice(0, 30); for (const b of l) newTab(b.url, true, activeId); } },
+    { label: 'Yer işaretlerini yönet...', click: () => openSettingsAt('yer-isaretleri') },
+    { type: 'separator' },
+    { label: `"${menuLabel(g)}" klasörünü sil`, click: () => removeBookmarkGroup(g) }
+  ], arg);
+}
+function removeBookmarkGroup(g) {
+  const n = settings.bookmarks.length;
+  settings.bookmarks = settings.bookmarks.filter((b) => !(b.path && b.path[0] === g));
+  saveSettings(); forEachWin(() => pushState()); notifyPages('settings');
+  return { removed: n - settings.bookmarks.length };
+}
+// Ayni adres zaten varsa eklenmez; klasor adi tarayici adi (ayni ad varsa yeni gelenler ona eklenir)
+function addImported(items, group) {
+  if (!Array.isArray(items)) return { error: 'Yer işaretleri okunamadı.' };
+  const have = new Set(settings.bookmarks.map((b) => b.url));
+  let added = 0, skipped = 0;
+  for (const it of items) {
+    if (have.has(it.url)) { skipped++; continue; }
+    have.add(it.url);
+    settings.bookmarks.push({ url: it.url, title: it.title, favicon: null, path: [group, ...(it.path || [])] });
+    added++;
+  }
+  if (added && !settings.bookmarksBar) settings.bookmarksBar = true;
+  saveSettings(true); forEachWin(() => { layout(); pushState(); }); notifyPages('settings');
+  return { added, skipped, group };
+}
+async function importBookmarksHtml() {
+  const r = await dialog.showOpenDialog(win, { title: 'Yer işareti dosyasını seçin', properties: ['openFile'], filters: [{ name: 'Yer işaretleri (HTML)', extensions: ['html', 'htm'] }] });
+  if (r.canceled || !r.filePaths[0]) return { canceled: true };
+  const items = bookmarkImport.readHtmlFile(r.filePaths[0]);
+  if (!items) return { error: 'Dosya okunamadı.' };
+  if (!items.length) return { error: 'Dosyada yer işareti bulunamadı.' };
+  return addImported(items, 'HTML dosyası');
+}
+
 function showBookmarkMenu(arg) {
   const b = settings.bookmarks[arg.index];
   if (!b) return;
@@ -2474,6 +2577,17 @@ ipcMain.handle('page', async (e, cmd, arg) => {
       case 'clear-prefs': return { prefs: settings.clearPrefs, protectedCount: (settings.protectedSites || []).length };
       case 'clear-run': return runClear(arg || {});
       case 'clear-status': return siteData.status();
+      case 'bm-sources': return { sources: bookmarkImport.listSources(), groups: bookmarkGroups(), total: settings.bookmarks.length };
+      case 'bm-import': {
+        const src = bookmarkImport.listSources().find((x) => x.id === String(arg || ''));
+        if (!src) return { error: 'Kaynak bulunamadı.' };
+        const items = bookmarkImport.readSourceById(src.id);
+        if (!items) return { error: `${src.browser} yer işaretleri okunamadı.` };
+        if (!items.length) return { error: `${src.browser} profilinde yer işareti yok.` };
+        return addImported(items, src.browser);
+      }
+      case 'bm-import-html': return importBookmarksHtml();
+      case 'bm-group-remove': return removeBookmarkGroup(String(arg || ''));
       case 'site-perms': settings.sitePerms = {}; saveSettings(true); notifyPages('settings'); return { ok: true };
       case 'device-grants': showDeviceGrants(); return { ok: true };
       case 'update-filters': forceUpdateFilters(); return { ok: true };

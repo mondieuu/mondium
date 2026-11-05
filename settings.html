@@ -79,6 +79,7 @@
   .ps-add { display:flex; gap:8px; padding:12px 20px; align-items:center; flex-wrap:wrap; }
   .ps-add .txt { flex:1 1 220px; width:auto; min-width:0; }
   .msg { padding:0 20px 10px; color:var(--dim); line-height:1.45; }
+  .card > .sub { padding:14px 20px 4px; font-size:12px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.4px; }
   .msg:empty { display:none; }
   .msg.err { color:#d93025; } .msg.ok { color:var(--text); }
   @media (prefers-color-scheme: dark) { .msg.err { color:#f28b82; } .btn.danger { color:#f28b82 !important; } }
@@ -136,6 +137,7 @@
     <a href="#gorunum" class="on"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 000 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-4a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3 4a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>Görünüm</a>
     <a href="#arama"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>Arama motoru</a>
     <a href="#baslangic"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0119 12c0 3.87-3.13 7-7 7A6.995 6.995 0 017.58 6.58L6.17 5.17A8.932 8.932 0 003 12a9 9 0 0018 0c0-2.74-1.23-5.18-3.17-6.83z"/></svg>Başlangıç</a>
+    <a href="#yer-isaretleri"><svg viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>Yer işaretleri</a>
     <a href="#performans"><svg viewBox="0 0 24 24"><path d="M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z"/></svg>Performans</a>
     <a href="#gizlilik"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>Gizlilik ve güvenlik</a>
     <a href="#korunan"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Korunan siteler</a>
@@ -233,6 +235,7 @@ function render() {
       select('engine', d.engines.map((x) => [x.key, x.name]), 'Adres çubuğunda kullanılan arama motoru', 'Yazdıklarınız siz Enter\'a basana kadar hiçbir yere gönderilmez.')),
     ...section('baslangic', 'Başlangıç',
       toggle('restoreSession', 'Önceki sekmeleri geri aç', 'Açılışta sekmeler uyutulmuş gelir; sadece tıkladığınız yüklenir, RAM harcanmaz.')),
+    ...bmSection(),
     ...section('performans', 'Performans',
       toggle('sleepTabs', 'Kullanılmayan sekmeleri uyut', 'Arka planda bir süre açılmayan sekme bellekten boşaltılır, tıklayınca yeniden yüklenir. Ses çalan sekmeler uyutulmaz. Uyuyan sekmeler soluk görünür.'),
       d.sleepTabs ? select('sleepMinutes', d.sleepChoices.map((m) => [m, sleepNames[m] || m + ' dakika']), 'Uyutma süresi', 'Sekme bu süre boyunca açılmazsa uyutulur.') : null,
@@ -285,6 +288,65 @@ function ago(t) {
   if (s < 90) return 'az önce'; if (s < 3600) return Math.round(s / 60) + ' dk önce'; if (s < 86400) return Math.round(s / 3600) + ' saat önce';
   return Math.round(s / 86400) + ' gün önce';
 }
+// ---------------------------------------------------------------- Yer isaretlerini ice aktar
+const bm = { box: null, busy: false };
+function bmSection() {
+  if (!bm.box) {
+    const hh = el('h2', null, 'Yer işaretleri'); hh.id = 'yer-isaretleri';
+    const c = el('div', 'card');
+    c.append(el('div', 'intro', 'Başka bir tarayıcıdaki yer işaretlerinizi Mondium’a aktarın. Dosyalar sadece bu bilgisayarda okunur, hiçbir yere gönderilmez ve o tarayıcıda hiçbir şey değişmez. Aktarılanlar yer işaretleri çubuğunda tarayıcının adıyla bir klasörde durur; zaten olan adresler tekrar eklenmez.'));
+    const msg = el('div', 'msg'); msg.setAttribute('role', 'status'); msg.setAttribute('aria-live', 'polite');
+    const src = el('div', 'lst'); src.setAttribute('role', 'list'); src.setAttribute('aria-label', 'Bulunan tarayıcılar');
+    const html = row('HTML dosyasından aktar', 'Safari ya da başka bir tarayıcıdan dışa aktardığınız yer işareti dosyası (.html).', button('Dosya seç', () => bmRun(() => api.call('bm-import-html'))));
+    const gh = el('div', 'sub', 'Aktarılan klasörler');
+    const groups = el('div', 'lst'); groups.setAttribute('role', 'list'); groups.setAttribute('aria-label', 'Aktarılan klasörler');
+    c.append(msg, src, html, gh, groups);
+    bm.box = [hh, c]; Object.assign(bm, { msg, src, groups, gh });
+  }
+  return bm.box;
+}
+function bmMsg(text, err) { bm.msg.textContent = text || ''; bm.msg.classList.toggle('err', !!err); }
+async function bmRun(fn) {
+  if (bm.busy) return;
+  bm.busy = true; bmMsg('Aktarılıyor...');
+  try {
+    const r = await fn();
+    if (!r || r.canceled) bmMsg('');
+    else if (r.error) bmMsg(r.error, true);
+    else bmMsg(`${r.added} yer işareti "${r.group}" klasörüne aktarıldı` + (r.skipped ? `, ${r.skipped} tanesi zaten vardı` : '') + '. Yer işaretleri çubuğunda görebilirsiniz.');
+  } catch (e) { bmMsg('Aktarılamadı: ' + e.message, true); }
+  bm.busy = false;
+  bmLoad();
+}
+async function bmLoad() {
+  if (!bm.box) return;
+  const r = await api.call('bm-sources');
+  const rows = r.sources.map((x) => {
+    const li = el('div', 'li'); li.setAttribute('role', 'listitem');
+    const nm = el('div', 'nm');
+    nm.append(el('b', null, x.browser), el('span', null, x.profile + ' · ' + (x.ok ? (x.count ? x.count + ' yer işareti' : 'yer işareti yok') : 'okunamadı')));
+    const acts = el('div', 'acts');
+    const b = button('Aktar', () => bmRun(() => api.call('bm-import', x.id)));
+    b.disabled = !x.ok || !x.count;
+    acts.append(b); li.append(nm, acts);
+    return li;
+  });
+  bm.src.replaceChildren(...(rows.length ? rows : [el('div', 'empty', 'Bu bilgisayarda yer işareti aktarılabilecek başka tarayıcı bulunamadı (Chrome, Edge, Brave, Opera, Vivaldi, Yandex, Firefox). HTML dosyasından aktarabilirsiniz.')]));
+  bm.gh.hidden = !r.groups.length;
+  bm.groups.replaceChildren(...r.groups.map((g) => {
+    const li = el('div', 'li'); li.setAttribute('role', 'listitem');
+    const nm = el('div', 'nm'); nm.append(el('b', null, g.name), el('span', null, g.count + ' yer işareti'));
+    const acts = el('div', 'acts');
+    acts.append(button('Sil', async () => {
+      if (!confirm(`"${g.name}" klasöründeki ${g.count} yer işareti silinsin mi?`)) return;
+      const x = await api.call('bm-group-remove', g.name);
+      bmMsg(`${x.removed} yer işareti silindi.`); bmLoad();
+    }));
+    li.append(nm, acts);
+    return li;
+  }));
+}
+
 const ps = { box: null, list: [], q: '', msg: '', err: false, deps: [] };
 function psSection() {
   if (!ps.box) {
@@ -543,7 +605,7 @@ function clResult(r) {
 }
 function hashAction() {
   if (location.hash === '#temizle') openClear();
-  else if (location.hash === '#siteler' || location.hash === '#korunan') { const t = document.getElementById(location.hash.slice(1)); if (t) t.scrollIntoView(); }
+  else if (location.hash === '#siteler' || location.hash === '#korunan' || location.hash === '#yer-isaretleri') { const t = document.getElementById(location.hash.slice(1)); if (t) t.scrollIntoView(); }
 }
 window.addEventListener('hashchange', hashAction);
 
@@ -561,7 +623,7 @@ let firstLoad = true;
 async function load() {
   if (!api) return;
   d = await api.call('settings-get'); render();
-  psLoad();
+  psLoad(); bmLoad();
   if (firstLoad) { firstLoad = false; setTimeout(hashAction, 50); }
 }
 if (api) {

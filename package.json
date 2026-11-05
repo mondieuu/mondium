@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -53,7 +53,8 @@
       "node_modules/**/*",
       "mv2-bridge.js",
       "vendor/**/*",
-      "site-data.js"
+      "site-data.js",
+      "bookmark-import.js"
     ],
     "win": {
       "target": [

@@ -212,6 +212,7 @@
   .bm:hover { background:var(--hover); }
   .bm:active { background:var(--press); }
   .bm img, .bm svg { width:16px; height:16px; flex:none; }
+  .bm.folder svg { fill:currentColor; color:var(--dim); }
   .bm span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   #bbar .hintx { color:var(--dim); padding:0 6px; white-space:nowrap; }
 
@@ -386,7 +387,19 @@ $('bbar').oncontextmenu = (e) => { if (e.target === $('bbar') || e.target.classL
 const posOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.bottom + 2 }; };
 $('dl').onclick = (e) => send('downloads', posOf(e.currentTarget));
 
-url.addEventListener('focus', () => { editing = true; omni.classList.add('focus'); if (state) url.value = state.url; setTimeout(() => url.select(), 0); renderLead(); });
+// Kullanicinin yazdigi metin (Chrome gibi) odak gidip gelince, yeni sekme sayfasi yuklenince ya da durum guncellenince
+// SILINMEZ. Eskiden yeni sekmede hizli yazinca sayfa yuklenip odak geri gelince adres cubugu sifirlaniyor/tumu seciliyordu;
+// Enter bos kutuda "hicbir sey yapmiyordu". Sadece Esc, gezinme, sekme ya da sayfa degisince sifirlanir.
+let dirty = false, dirtyKey = '';
+const pageKey = () => (state ? state.activeId + '|' + state.url : '');
+url.addEventListener('focus', () => {
+  editing = true; omni.classList.add('focus');
+  if (dirty && dirtyKey === pageKey()) { renderLead(); return; }
+  dirty = false;
+  if (state) url.value = state.url;
+  setTimeout(() => { if (!dirty) url.select(); }, 0);
+  renderLead();
+});
 url.addEventListener('blur', () => { editing = false; omni.classList.remove('focus'); hideSug(); renderOmni(); });
 
 // ---------- Adres cubugu onerileri (sadece yerel gecmis ve yer isaretleri; yazilanlar disari gitmez)
@@ -402,6 +415,7 @@ function go(where) {
   const r = sugRows[sugSel];
   const v = r && r.url ? r.url : url.value.trim();
   if (!v) return;
+  dirty = false;
   hideSug(); url.blur();
   send(where === 'tab' ? 'navigate-tab' : 'navigate', v);
 }
@@ -444,6 +458,7 @@ function selectSug(i, fill) {
 }
 url.addEventListener('input', (e) => {
   typed = url.value;
+  dirty = true; dirtyKey = pageKey();
   lastWasDelete = /^delete/.test(e.inputType || '');
   if (!typed.trim()) { hideSug(); return; }
   send('omni-query', typed);
@@ -471,10 +486,14 @@ url.addEventListener('keydown', (e) => {
   }
   else if (e.key === 'Escape') {
     if (!sug.hidden) { hideSug(); url.value = typed; return; }
-    url.value = state ? state.url : ''; url.blur();
+    dirty = false; url.value = state ? state.url : ''; url.blur();
   }
 });
-browserApi.onFocusUrl((d) => { url.focus(); if (d.search) { url.value = ''; typed = ''; hideSug(); } else url.select(); });
+browserApi.onFocusUrl((d) => {
+  url.focus();
+  if (d.search) { dirty = false; url.value = ''; typed = ''; hideSug(); }
+  else if (!dirty) url.select();   // kullanici yazmaya basladiysa metnini secip ezdirme
+});
 
 // Chrome gibi: odak disindayken "https://www." gizlenir
 function prettyUrl(u) {
@@ -498,6 +517,8 @@ function renderLead() {
 }
 function renderOmni() {
   if (!state || editing) return;
+  if (dirty && dirtyKey === pageKey()) { renderLead(); return; }   // yazilan metin korunur
+  dirty = false;
   url.value = state.fullUrl ? state.url : prettyUrl(state.url);
   renderLead();
 }
@@ -750,7 +771,16 @@ function renderBookmarks(s) {
     h.textContent = 'Hızlı erişim için yer işaretlerinizi buraya, yer işaretleri çubuğuna ekleyin (Ctrl+D).';
     bar.replaceChildren(h); return;
   }
-  bar.replaceChildren(...s.bookmarks.map((b, i) => {
+  bar.replaceChildren(...s.bookmarks.map((b) => {
+    if (b.folder) {   // ice aktarilan klasor: tiklayinca alt klasorleriyle menu acilir
+      const el = document.createElement('button'); el.className = 'bm folder'; el.title = `${b.folder} (${b.count} yer işareti)`;
+      const ic = document.createElement('span'); ic.innerHTML = MI.folder; el.appendChild(ic.firstElementChild || ic);
+      const t = document.createElement('span'); t.textContent = b.folder; el.appendChild(t);
+      el.onclick = () => { const r = el.getBoundingClientRect(); send('bookmark-folder', { folder: b.folder, x: r.left, y: r.bottom }); };
+      el.oncontextmenu = (e) => { e.preventDefault(); send('bookmark-folder-menu', { folder: b.folder, x: e.clientX, y: e.clientY }); };
+      return el;
+    }
+    const i = b.i;
     const el = document.createElement('button'); el.className = 'bm'; el.title = b.title + '\n' + b.url;
     if (b.favicon) { const im = document.createElement('img'); im.src = b.favicon; im.alt = ''; im.onerror = () => { im.replaceWith(globeEl()); }; el.appendChild(im); }
     else el.appendChild(globeEl());
@@ -873,6 +903,7 @@ function menuModel(d, kind) {
     { icon: MI.star, label: 'Yer işaretleri', sub: () => [
       { icon: d.bookmarked ? MI.starOn : MI.star, label: d.bookmarked ? 'Yer işaretini kaldır' : 'Bu sayfaya yer işareti koy', accel: 'Ctrl+D', act: 'bookmark-toggle', dis: !d.canBookmark },
       { icon: d.bookmarksBar ? MI.check : MI.blank, label: 'Yer işaretleri çubuğunu göster', accel: 'Ctrl+Shift+B', act: 'bookmarks-bar' },
+      { icon: MI.folder, label: 'Yer işaretlerini içe aktar...', act: 'bookmarks-import' },
       ...(d.bookmarks.length ? [{ sep: true }, ...d.bookmarks.map((b) => ({ img: b.favicon, icon: I.globe, label: b.title, act: 'bookmark-open', arg: b.i }))] : [])
     ] },
     { icon: MI.history, label: 'Geçmiş', sub: () => [

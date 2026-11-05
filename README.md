@@ -72,6 +72,7 @@ Clear everything, except the sites you choose to keep signed in to.
 - **Vertical tabs** with a resizable sidebar (down to an icon-only strip) and an auto-hide mode (`Ctrl+S`). The sidebar slides in from the screen edge.
 - **Themes:** System, Light, Dark, eight color themes, and an optional **pitch-black** mode for OLED screens.
 - **Built-in tools, no extensions needed:** a volume booster (up to 600% per tab), hover zoom for images (press `Z` to pin and zoom with the wheel), reader mode (`F9`), picture-in-picture.
+- **Import bookmarks** from Chrome, Edge, Brave, Opera, Vivaldi, Yandex or Firefox in one click, or from any exported HTML file. Read locally, nothing is sent anywhere; imports land in a folder on the bookmarks bar.
 - **Address bar suggestions** from local history and bookmarks only. Nothing you type is sent to a search engine until you press Enter.
 - Chrome keyboard shortcuts, tab pinning and muting, reopen closed tabs, bookmarks bar, downloads and history pages.
 
@@ -83,7 +84,7 @@ Clear everything, except the sites you choose to keep signed in to.
 
 ## Download
 
-**[⬇ Download Mondium for Windows](https://github.com/mondieuu/mondium/releases/latest/download/Mondium-Setup-1.0.0.exe)** (64-bit, Windows 10/11) · [all releases](https://github.com/mondieuu/mondium/releases)
+**[⬇ Download the latest Mondium for Windows](https://github.com/mondieuu/mondium/releases/latest)** (64-bit, Windows 10/11): grab `Mondium-Setup-<version>.exe` under *Assets*.
 
 The installer works like Chrome's: one click, no admin rights, installs for the current user and opens Mondium when it's done. Mondium also shows up under **Settings → Apps → Default apps**, so you can make it your default browser.
 
