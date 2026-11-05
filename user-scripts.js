@@ -80,7 +80,7 @@ function setupUserScripts({ ses, storeFile }) {
       case 'register': {
         const list = (Array.isArray(args[0]) ? args[0] : []).map(normalize);
         for (const s of list) {
-          if (!s.id) return { error: 'Betik kimliği boş olamaz' };
+          if (!s.id) return { error: 'Script id must not be empty' };
           if (e.scripts.some((x) => x.id === s.id)) return { error: `Duplicate script ID '${s.id}': is already registered` };
         }
         e.scripts.push(...list); save(); return {};

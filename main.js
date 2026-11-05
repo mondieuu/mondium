@@ -15,6 +15,7 @@ const {
 } = require('electron');
 // castLabs Electron (Widevine DRM). Standart Electron'da yoktur; o durumda DRM'siz calisilir.
 const { components } = require('electron');
+const I18N = require('./i18n');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -77,6 +78,7 @@ const DEFAULTS = {
   verticalTabs: false,       // dikey sekmeler (solda kenar cubugu)
   verticalWidth: 240,        // dikey kenar cubugu genisligi (px); en dar halinde sadece simgeler
   verticalAutoHide: false,
+  language: 'auto',         // arayuz dili: 'auto' (Windows dili) | 'tr' | 'en'
   sideEdge: 2,               // GECICI test ayari: saklanma modunda kenar cubugunu acan sol kenar genisligi (px)
   pitchBlack: false,         // koyu temada tam siyah
   protectedSites: [],        // Korunan Siteler: temizlikte cerez ve site verisi silinmeyen siteler (kayit edilebilir alan adi)
@@ -217,6 +219,36 @@ function sessionData() {
   return lastSessionData;
 }
 const saveSession = (now = false) => writeList(SESSION_FILE, sessionData, now);
+
+// ------------------------------------------- Arayuz dili (i18n.js). Turkce kaynak; Ingilizce ceviri sozlukten.
+// 'auto': Windows dili Turkce ise Turkce, degilse Ingilizce. Chromium'un kendi dili (siteye giden Accept-Language,
+// yerlesik PDF goruntuleyici) secilen dile gore acilista ayarlanir; arayuz degisikligi aninda uygulanir.
+let uiLangCache = null;
+function uiLang() {
+  if (uiLangCache) return uiLangCache;
+  if (settings.language === 'tr' || settings.language === 'en') return (uiLangCache = settings.language);
+  let sys = '';
+  try { sys = (app.getPreferredSystemLanguages && app.getPreferredSystemLanguages()[0]) || app.getSystemLocale() || app.getLocale() || ''; } catch {}
+  return (uiLangCache = /^tr/i.test(sys) ? 'tr' : 'en');
+}
+const T = (text) => I18N.translate(text, uiLang());
+// Sayfaya enjekte edilen betiklerdeki (okuma modu, resim buyutme) arayuz yazilari: tek tirnakli dizeler cevrilir
+const localizeSrc = (src) => (uiLang() === 'tr' ? src : src.replace(/'([^'\\\n]*)'/g, (m, x) => { const t = T(x); return t === x ? m : JSON.stringify(t); }));
+ipcMain.on('mondium-lang', (e) => { e.returnValue = uiLang(); });
+if (settings.language === 'en') app.commandLine.appendSwitch('lang', 'en-US');
+else if (settings.language === 'tr') app.commandLine.appendSwitch('lang', 'tr');
+// Yerel menuler, iletisim kutulari ve bildirimler secilen dilde
+const trMenu = (list) => list.map((it) => ({ ...it, ...(it.label ? { label: T(it.label) } : {}), ...(Array.isArray(it.submenu) ? { submenu: trMenu(it.submenu) } : {}) }));
+const trOpts = (o) => (o && typeof o === 'object' ? {
+  ...o,
+  ...(o.title ? { title: T(o.title) } : {}), ...(o.message ? { message: T(o.message) } : {}), ...(o.detail ? { detail: T(o.detail) } : {}),
+  ...(o.checkboxLabel ? { checkboxLabel: T(o.checkboxLabel) } : {}), ...(Array.isArray(o.buttons) ? { buttons: o.buttons.map(T) } : {}),
+  ...(Array.isArray(o.filters) ? { filters: o.filters.map((f) => ({ ...f, name: T(f.name) })) } : {})
+} : o);
+for (const k of ['showMessageBox', 'showMessageBoxSync', 'showOpenDialog', 'showOpenDialogSync', 'showSaveDialog', 'showSaveDialogSync']) {
+  const orig = dialog[k];
+  if (typeof orig === 'function') dialog[k] = (w, o) => (o === undefined ? orig.call(dialog, trOpts(w)) : orig.call(dialog, w, trOpts(o)));
+}
 
 // ------------------------------------------- Gizlilik + performans komut satiri anahtarlari
 const cl = app.commandLine;
@@ -638,7 +670,8 @@ function extPermissionRows(m) {
   if (all || perms.has('debugger')) rows.push({ icon: 'globe', text: 'Tüm web sitelerindeki verilerinizi okuyup değiştirebilir' });
   else if (hosts.size) {
     const names = [...new Set([...hosts].map((h) => h.replace(/^[^:]+:\/\//, '').replace(/^\*\./, '').replace(/\/.*$/, '')).filter(Boolean))];
-    rows.push({ icon: 'globe', text: 'Şu sitelerdeki verilerinizi okuyup değiştirebilir: ' + names.slice(0, 4).join(', ') + (names.length > 4 ? ' ve ' + (names.length - 4) + ' site daha' : '') });
+    const more = names.length - 4;
+    rows.push({ icon: 'globe', text: T('Şu sitelerdeki verilerinizi okuyup değiştirebilir:') + ' ' + names.slice(0, 4).join(', ') + (more > 0 ? (uiLang() === 'en' ? ` and ${more} more ${more === 1 ? 'site' : 'sites'}` : ` ve ${more} site daha`) : '') });
   }
   const map = [
     ['history', 'Tarama geçmişinizi okuyup değiştirebilir'], ['tabs', 'Tarama geçmişinizi okuyabilir'],
@@ -794,7 +827,7 @@ function setupSession(ses = mainSes, incognito = false) {
 const liveNotes = new Set();
 function notifyDownload(d) {
   if (!settings.downloadNotify || !Notification.isSupported()) return;
-  const n = new Notification({ title: 'İndirme tamamlandı', body: d.name, icon: path.join(__dirname, 'icon.png'), silent: true });
+  const n = new Notification({ title: T('İndirme tamamlandı'), body: d.name, icon: path.join(__dirname, 'icon.png'), silent: true });
   const drop = () => liveNotes.delete(n);
   n.on('click', () => { drop(); shell.showItemInFolder(d.file); });
   n.on('close', drop);
@@ -1216,7 +1249,7 @@ let ZOOM_JS = null;
 function applyHoverZoom(wc, on = settings.hoverZoom) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
   if (!on) { wc.executeJavaScriptInIsolatedWorld(1014, [{ code: "{ const z = window[Symbol.for('mondium.zoom')]; if (z) z.off(); }" }]).catch(() => {}); return; }
-  if (!ZOOM_JS) ZOOM_JS = fs.readFileSync(path.join(__dirname, 'hoverzoom.js'), 'utf8');
+  if (!ZOOM_JS) ZOOM_JS = localizeSrc(fs.readFileSync(path.join(__dirname, 'hoverzoom.js'), 'utf8'));
   wc.executeJavaScriptInIsolatedWorld(1014, [{ code: ZOOM_JS }]).catch(() => {});
 }
 function setFeature(key, on) {
@@ -1592,6 +1625,7 @@ function bindMenu(items) {
   const w = W;
   const wrap = (list) => list.map((it) => ({
     ...it,
+    ...(it.label ? { label: T(it.label) } : {}),
     ...(typeof it.click === 'function' ? { click: (...a) => { useWin(w); return it.click(...a); } } : {}),
     ...(Array.isArray(it.submenu) ? { submenu: wrap(it.submenu) } : {})
   }));
@@ -1716,7 +1750,7 @@ function menuAction(id, arg) {
     case 'ext-remove': removeExtension(arg); break;
     case 'about': dialog.showMessageBox(win, {
       message: 'Mondium ' + app.getVersion(),
-      detail: `Motor: Chromium ${process.versions.chrome}\nElectron ${process.versions.electron}\n\nGoogle hesabı gerekmez, telemetri yok, reklam engelleyici her zaman açık.`
+      detail: `${uiLang() === 'en' ? 'Engine' : 'Motor'}: Chromium ${process.versions.chrome}\nElectron ${process.versions.electron}\n\n${T('Google hesabı gerekmez, telemetri yok, reklam engelleyici her zaman açık.')}`
     }); break;
     case 'quit': app.quit(); break;
   }
@@ -2332,7 +2366,7 @@ function mediaToggle(wc, frame, x, y, what) {
 let READER_JS = null;
 function toggleReader(wc) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
-  if (!READER_JS) READER_JS = fs.readFileSync(path.join(__dirname, 'reader.js'), 'utf8');   // ilk kullanimda okunur
+  if (!READER_JS) READER_JS = localizeSrc(fs.readFileSync(path.join(__dirname, 'reader.js'), 'utf8'));   // ilk kullanimda okunur
   wc.executeJavaScriptInIsolatedWorld(1012, [{ code: READER_JS }], true).then((r) => {
     if (r === 'bulunamadi') dialog.showMessageBox(win, { message: 'Bu sayfada okuma modunda gösterilecek bir yazı bulunamadı.' });
   }).catch(() => {});
@@ -2500,7 +2534,7 @@ function settingsData() {
   return {
     theme: settings.theme, themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name, mode: t.mode, frame: t.frame || null, accent: t.accent || null })),
     engine: settings.searchEngine, engines: Object.entries(SEARCH_ENGINES).map(([key, x]) => ({ key, name: x.name })),
-    bookmarksBar: settings.bookmarksBar, fullUrl: settings.fullUrl, forceDarkPages: settings.forceDarkPages, strictIsolation: settings.strictIsolation,
+    bookmarksBar: settings.bookmarksBar, fullUrl: settings.fullUrl, forceDarkPages: settings.forceDarkPages, strictIsolation: settings.strictIsolation, language: settings.language || 'auto',
     clearGoogleOnExit: settings.clearGoogleOnExit, restoreSession: settings.restoreSession,
     keepLogins: settings.keepLogins, newtabTitle: settings.newtabTitle,
     sleepMinutes: settings.sleepMinutes, sleepChoices: SLEEP_CHOICES, downloadNotify: settings.downloadNotify,
@@ -2521,6 +2555,15 @@ function setNewtabTitle(v) {
   saveSettings();
   broadcastPages();
 }
+// Dil degisince arayuz ve Mondium sayfalari yeniden yuklenir (ceviri sayfa acilirken uygulanir)
+function setLanguage(v) {
+  if (settings.language === v) return;
+  settings.language = v; uiLangCache = null; saveSettings(true);
+  setTimeout(() => {
+    forEachWin((w) => { if (ui && !ui.webContents.isDestroyed()) ui.webContents.reload(); });
+    for (const t of allTabs()) if (t.view && isInternal(t.url) && !t.view.webContents.isDestroyed()) t.view.webContents.reload();
+  }, 150);
+}
 function settingsSet(key, value) {
   const bool = (k) => { if (typeof value !== 'boolean') return false; setSetting(k, value, k === 'forceDarkPages' || k === 'strictIsolation'); return true; };
   switch (key) {
@@ -2539,6 +2582,7 @@ function settingsSet(key, value) {
       forEachWin(() => pushState());
       return true;
     case 'verticalTabs': if (typeof value !== 'boolean') return false; setVerticalTabs(value); return true;
+    case 'language': if (!['auto', 'tr', 'en'].includes(value)) return false; setLanguage(value); return true;
     case 'pitchBlack': if (typeof value !== 'boolean') return false; settings.pitchBlack = value; saveSettings(); applyTheme(); return true;
     case 'sideEdge': {
       const v = Math.round(Number(value));

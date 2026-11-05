@@ -2,7 +2,8 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https: http:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' file:; img-src data: https: http:">
+<script src="i18n.js"></script>
 <title>Geçmiş</title>
 <style>
   :root { --bg:#f8fafd; --card:#ffffff; --text:#1f1f1f; --dim:#5f6368; --border:#e3e3e3; --hover:rgba(31,31,31,.06);
@@ -198,8 +199,8 @@ function applyTheme(t) {
 }
 
 // ---------- Yardimcilar
-const fmtTime = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
-const fmtDay = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' });
+const fmtTime = new Intl.DateTimeFormat((window.LANG === 'en' ? 'en-US' : 'tr-TR'), { hour: '2-digit', minute: '2-digit' });
+const fmtDay = new Intl.DateTimeFormat((window.LANG === 'en' ? 'en-US' : 'tr-TR'), { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' });
 function dayLabel(t) {
   const d = new Date(t); d.setHours(0, 0, 0, 0);
   const today = new Date(); today.setHours(0, 0, 0, 0);

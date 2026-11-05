@@ -2,7 +2,8 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' file:; img-src data:">
+<script src="i18n.js"></script>
 <title>İndirilenler</title>
 <style>
   :root { --bg:#f8fafd; --card:#ffffff; --text:#1f1f1f; --dim:#5f6368; --border:#e3e3e3; --hover:rgba(31,31,31,.06);
@@ -167,15 +168,15 @@ function fmtBytes(b) {
   if (!b) return '0 B';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
-  return (b / Math.pow(1024, i)).toLocaleString('tr-TR', { maximumFractionDigits: i > 1 ? 1 : 0 }) + ' ' + u[i];
+  return (b / Math.pow(1024, i)).toLocaleString((window.LANG === 'en' ? 'en-US' : 'tr-TR'), { maximumFractionDigits: i > 1 ? 1 : 0 }) + ' ' + u[i];
 }
 function fmtLeft(s) {
   if (!isFinite(s) || s <= 0) return '';
-  if (s < 60) return Math.ceil(s) + ' sn kaldı';
-  if (s < 3600) return Math.ceil(s / 60) + ' dk kaldı';
-  return Math.floor(s / 3600) + ' sa ' + Math.ceil((s % 3600) / 60) + ' dk kaldı';
+  if (s < 60) return L(Math.ceil(s) + ' sn kaldı', Math.ceil(s) + ' s left');
+  if (s < 3600) return L(Math.ceil(s / 60) + ' dk kaldı', Math.ceil(s / 60) + ' min left');
+  return L(Math.floor(s / 3600) + ' sa ' + Math.ceil((s % 3600) / 60) + ' dk kaldı', Math.floor(s / 3600) + ' h ' + Math.ceil((s % 3600) / 60) + ' min left');
 }
-const fmtDay = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+const fmtDay = new Intl.DateTimeFormat((window.LANG === 'en' ? 'en-US' : 'tr-TR'), { day: 'numeric', month: 'long', year: 'numeric' });
 function dayLabel(t) {
   const d = new Date(t); d.setHours(0, 0, 0, 0);
   const today = new Date(); today.setHours(0, 0, 0, 0);

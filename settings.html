@@ -2,7 +2,8 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' file:; img-src data:">
+<script src="i18n.js"></script>
 <title>Ayarlar</title>
 <style>
   :root { --bg:#f8fafd; --card:#ffffff; --text:#1f1f1f; --dim:#5f6368; --border:#e3e3e3; --hover:rgba(31,31,31,.06);
@@ -216,6 +217,7 @@ function render() {
   const saveTitle = () => { if (ti.value.trim() !== d.newtabTitle) set('newtabTitle', ti.value); };
   ti.onchange = saveTitle; ti.onkeydown = (e) => { if (e.key === 'Enter') ti.blur(); };
   look.append(...[
+    select('language', [['auto', 'Otomatik (sistem dili)'], ['tr', 'Türkçe'], ['en', 'English']], 'Dil / Language', 'Arayüz dili. "Otomatik" Windows dilini kullanır.'),
     row('Yeni sekme başlığı', 'Yeni sekme sayfasındaki büyük yazı. Sayfada başlığa çift tıklayarak da değiştirebilirsiniz.', ti),
     toggle('bookmarksBar', 'Yer işaretleri çubuğunu göster', 'Ctrl+Shift+B'),
     toggle('fullUrl', 'Adres çubuğunda tam URL göster', 'Kapalıyken "https://www." kısmı gizlenir.'),
@@ -281,12 +283,16 @@ function render() {
 }
 
 // ================================================================ Korunan Siteler
-const fmtBytes = (n) => (n == null ? 'ölçülemedi' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1).replace('.', ',') + ' KB' : (n / 1048576).toFixed(1).replace('.', ',') + ' MB');
+const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+const dec = (v) => (window.LANG === 'en' ? v : v.replace('.', ','));
+const fmtBytes = (n) => (n == null ? L('ölçülemedi', 'not measurable') : n < 1024 ? n + ' B' : n < 1048576 ? dec((n / 1024).toFixed(1)) + ' KB' : dec((n / 1048576).toFixed(1)) + ' MB');
 function ago(t) {
   if (!t) return null;
   const s = (Date.now() - t) / 1000;
-  if (s < 90) return 'az önce'; if (s < 3600) return Math.round(s / 60) + ' dk önce'; if (s < 86400) return Math.round(s / 3600) + ' saat önce';
-  return Math.round(s / 86400) + ' gün önce';
+  if (s < 90) return L('az önce', 'just now');
+  if (s < 3600) return L(Math.round(s / 60) + ' dk önce', Math.round(s / 60) + ' min ago');
+  if (s < 86400) return L(Math.round(s / 3600) + ' saat önce', pl(Math.round(s / 3600), 'hour', 'hours') + ' ago');
+  return L(Math.round(s / 86400) + ' gün önce', pl(Math.round(s / 86400), 'day', 'days') + ' ago');
 }
 // ---------------------------------------------------------------- Yer isaretlerini ice aktar
 const bm = { box: null, busy: false };
@@ -459,10 +465,10 @@ function sdDraw() {
     if (x.protected) b.append(el('span', 'tag', 'Korunuyor'));
     if (x.open) b.append(el('span', 'tag gray', 'Açık sekme'));
     const parts = [];
-    parts.push(x.cookies ? `${x.cookies} çerez` + (x.partitionedCookies ? ` (${x.partitionedCookies} bölümlenmiş)` : '') : 'çerez yok');
-    if (x.keys) parts.push(x.unmeasured && !x.bytes ? 'depolama: boyut ölçülemedi (localStorage)' : `depolama: ${fmtBytes(x.bytes)}` + (x.unmeasured ? ' + ölçülemeyen localStorage' : ''));
-    if (x.embedded.length) parts.push(`gömülü: ${x.embedded.slice(0, 3).join(', ')}${x.embedded.length > 3 ? ' +' + (x.embedded.length - 3) : ''}`);
-    const lu = ago(x.lastUsed); parts.push(lu ? 'son kullanım ' + lu : 'son kullanım bilinmiyor');
+    parts.push(x.cookies ? L(`${x.cookies} çerez`, pl(x.cookies, 'cookie', 'cookies')) + (x.partitionedCookies ? L(` (${x.partitionedCookies} bölümlenmiş)`, ` (${x.partitionedCookies} partitioned)`) : '') : L('çerez yok', 'no cookies'));
+    if (x.keys) parts.push(x.unmeasured && !x.bytes ? L('depolama: boyut ölçülemedi (localStorage)', 'storage: size not measurable (localStorage)') : L('depolama: ', 'storage: ') + fmtBytes(x.bytes) + (x.unmeasured ? L(' + ölçülemeyen localStorage', ' + unmeasured localStorage') : ''));
+    if (x.embedded.length) parts.push(L('gömülü: ', 'embedded: ') + x.embedded.slice(0, 3).join(', ') + (x.embedded.length > 3 ? ' +' + (x.embedded.length - 3) : ''));
+    const lu = ago(x.lastUsed); parts.push(lu ? L('son kullanım ' + lu, 'last used ' + lu) : L('son kullanım bilinmiyor', 'last used unknown'));
     nm.append(b, el('span', null, parts.join(' · ')));
     const acts = el('div', 'acts');
     const pr = button(x.protected ? 'Korumayı kaldır' : 'Koru', async () => {
@@ -472,11 +478,14 @@ function sdDraw() {
     });
     pr.classList.add('sm'); pr.setAttribute('aria-pressed', String(!!x.protected)); pr.setAttribute('aria-label', (x.protected ? 'Korumayı kaldır: ' : 'Koru: ') + x.display);
     const del = button('Sil', async () => {
-      if (!confirm(`${x.display} sitesinin çerezleri ve site verileri silinsin mi?${x.protected ? '\n\nBu site korunuyor; bu işlem korumaya rağmen bu sitenin verilerini siler.' : ''}${x.open ? '\n\nSitenin açık sekmesi var; sayfa bazı verileri yeniden oluşturabilir.' : ''}`)) return;
+      if (!confirm(L(`${x.display} sitesinin çerezleri ve site verileri silinsin mi?`, `Delete ${x.display}'s cookies and site data?`)
+        + (x.protected ? L('\n\nBu site korunuyor; bu işlem korumaya rağmen bu sitenin verilerini siler.', '\n\nThis site is protected; this deletes its data anyway.') : '')
+        + (x.open ? L('\n\nSitenin açık sekmesi var; sayfa bazı verileri yeniden oluşturabilir.', '\n\nThe site has an open tab; the page may recreate some data.') : ''))) return;
       del.disabled = true; pr.disabled = true;
       const res = await api.call('sd-delete-site', x.site);
       if (res.error) toast(res.error);
-      else toast(`${x.display}: ${res.deleted.cookies} çerez, ${res.deleted.keys} depolama silindi${res.remaining.length ? ', ' + res.remaining.length + ' kayıt hâlâ duruyor' : ''}`);
+      else toast(L(`${x.display}: ${res.deleted.cookies} çerez, ${res.deleted.keys} depolama silindi${res.remaining.length ? ', ' + res.remaining.length + ' kayıt hâlâ duruyor' : ''}`,
+        `${x.display}: ${pl(res.deleted.cookies, 'cookie', 'cookies')} and ${pl(res.deleted.keys, 'storage area', 'storage areas')} deleted${res.remaining.length ? ', ' + res.remaining.length + ' still there' : ''}`));
       sdLoad();
     });
     del.classList.add('sm', 'danger'); del.setAttribute('aria-label', x.display + ' verilerini sil');
@@ -593,7 +602,7 @@ function clResult(r) {
     out.push(el('p', null, `Çerezler: ${s.deleted.cookies} silindi (doğrulandı)${s.requested.cookies !== s.deleted.cookies ? `, ${s.requested.cookies - s.deleted.cookies} tanesi için istek gönderildi ama hâlâ duruyor` : ''}.`));
     out.push(el('p', null, `Site depolaması: ${s.deleted.keys} depolama alanı silindi (doğrulandı)${s.requested.keys !== s.deleted.keys ? `, ${s.requested.keys - s.deleted.keys} tanesi hâlâ duruyor` : ''}.`));
     if (s.protectedKept.length) { out.push(el('h4', null, 'Korunduğu için bırakılan siteler')); out.push(li(s.protectedKept)); }
-    if (s.remaining.length) { out.push(el('h4', null, 'Silinemeyen ya da yeniden oluşan veriler')); out.push(li(s.remaining.slice(0, 30).map((x) => `${x.site}: ${x.what} - ${x.reason}`))); }
+    if (s.remaining.length) { out.push(el('h4', null, 'Silinemeyen ya da yeniden oluşan veriler')); out.push(li(s.remaining.slice(0, 30).map((x) => `${x.site}: ${MondiumI18n.translate(x.what, LANG)} - ${MondiumI18n.translate(x.reason, LANG)}`))); }
     if (s.newDuring.length) { out.push(el('h4', null, 'Temizlik sırasında yeni veri oluşturan siteler')); out.push(li(s.newDuring.slice(0, 20))); }
     if (s.errors.length) { out.push(el('h4', null, 'Hatalar')); out.push(li(s.errors.slice(0, 30).map((x) => `${x.type} - ${x.site} (${x.detail}): ${x.error}`))); }
     for (const nt of s.notes || []) out.push(el('div', 'note', nt));

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('browserApi', {
   platform: process.platform,
+  lang: ipcRenderer.sendSync('mondium-lang'),
   send: (cmd, arg) => ipcRenderer.send('ui', cmd, arg),
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
   onFound: (fn) => ipcRenderer.on('found', (_e, r) => fn(r)),

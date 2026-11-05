@@ -13,6 +13,7 @@ function inMainWorld(fn) {
 //    Diger sitelerde bu API hic olusturulmaz. Ana surec ayrica her komutta gonderen sayfayi denetler.
 if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions)\.html$/.test(location.pathname)) {
   contextBridge.exposeInMainWorld('pageApi', {
+    lang: ipcRenderer.sendSync('mondium-lang'),   // arayuz dili: 'tr' | 'en' (bkz. i18n.js)
     get: () => ipcRenderer.invoke('page', 'get'),
     call: (cmd, arg) => ipcRenderer.invoke('page', cmd, arg),
     onUpdate: (fn) => { ipcRenderer.removeAllListeners('page-update'); ipcRenderer.on('page-update', (_e, d) => fn(d)); }
@@ -25,7 +26,7 @@ inMainWorld(() => {
   try {
     const c = navigator.credentials;
     if (c) {
-      const deny = () => Promise.reject(new DOMException('Passkey bu tarayicida kapali', 'NotAllowedError'));
+      const deny = () => Promise.reject(new DOMException('Passkeys are disabled in this browser', 'NotAllowedError'));
       const og = c.get && c.get.bind(c), oc = c.create && c.create.bind(c);
       Object.defineProperty(c, 'get', { value: (o) => (o && o.publicKey ? deny() : og(o)), configurable: true, writable: true });
       Object.defineProperty(c, 'create', { value: (o) => (o && o.publicKey ? deny() : oc(o)), configurable: true, writable: true });
