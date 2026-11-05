@@ -1,20 +1,20 @@
 'use strict';
-// Korunan Siteler ve secici site verisi temizligi (ana surec).
+// Protected Sites and selective site data clearing (main process).
 //
-// Motor araclari (Electron 44 / Chromium 152, olculdu):
-//  - Cerezler: CDP Network.getAllCookies (bolumlenmis CHIPS cerezlerinin partitionKey'i ile) ve
-//    Network.deleteCookies (name + domain + path + partitionKey ile TEK cerez). Electron'un cookies API'si
-//    partitionKey vermiyor; session.clearData'nin dislama listesi korunan sitenin bolumlenmis cerezlerini siliyor.
-//  - Depolama: CDP Storage.clearDataForStorageKey -> tam depolama anahtari (bolum dahil). "https://embed/^0https://a"
-//    sadece a altindaki embed bolumunu siler. session.clearData(excludeOrigins) alt alanlari ve baska port/protokolu
-//    koruyamiyor; bu yuzden kullanilmiyor.
-//  - Envanter: Chromium QuotaManager veritabani (WebStorage/QuotaManager, salt okunur KOPYA, node:sqlite) =
-//    IndexedDB / Cache Storage / service worker / OPFS kovalari, son kullanim zamanlariyla. localStorage kota disi:
-//    "Local Storage/leveldb" dosyalarindan sadece META:<depolama anahtari> anahtarlari okunur (degerler okunmaz).
-//  - Kullanim: birinci taraf kokenler icin CDP Storage.getUsageAndQuota (motorun olctugu), bolumlenmis kovalar icin
-//    WebStorage/<kova> klasorunun diskteki boyutu. localStorage boyutu site bazinda olculemez.
-// Guvenlik: cerez DEGERLERI hic tutulmaz/loglanmaz; dahili (chrome-extension:, file:) kokenlere dokunulmaz;
-// korunan hicbir hedef silme listesine girmez (islem yarida kalsa da korunan veri etkilenmez).
+// Engine tools (Electron 44 / Chromium 152, measured):
+//  - Cookies: CDP Network.getAllCookies (with partitionKey of partitioned CHIPS cookies) and
+//    Network.deleteCookies (ONE cookie by name + domain + path + partitionKey). Electron's cookies API
+//    gives no partitionKey; session.clearData's exclude list deletes a protected site's partitioned cookies.
+//  - Storage: CDP Storage.clearDataForStorageKey -> full storage key (incl. partition). "https://embed/^0https://a"
+//    deletes only the embed partition under a. session.clearData(excludeOrigins) cannot protect subdomains or
+//    other ports/schemes, so it is not used.
+//  - Inventory: Chromium QuotaManager database (WebStorage/QuotaManager, read-only COPY, node:sqlite) =
+//    IndexedDB / Cache Storage / service worker / OPFS buckets with last-use times. localStorage is outside quota:
+//    only META:<storage key> keys are read from "Local Storage/leveldb" files (values are not read).
+//  - Usage: CDP Storage.getUsageAndQuota for first-party origins (engine-measured), on-disk size of the
+//    WebStorage/<bucket> folder for partitioned buckets. localStorage size cannot be measured per site.
+// Security: cookie VALUES are never kept/logged; internal (chrome-extension:, file:) origins are untouched;
+// no protected target ever enters the delete list (protected data is safe even if the run is interrupted).
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -23,10 +23,10 @@ const url = require('url');
 let parseTld = null;
 try { ({ parse: parseTld } = require('tldts-experimental')); } catch {}
 
-// ---------------------------------------------------------------- Site kurallari
+// ---------------------------------------------------------------- Site rules
 const isIp = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || /^\[?[0-9a-f:]+\]?$/i.test(h) && h.includes(':');
-// Bir host'un "site"i: kayit edilebilir alan adi (ozel son ekler dahil: kullanici.github.io ayri site),
-// IP adresi kendisi, localhost ve alt alanlari "localhost". Gecersiz/genel son ek -> null.
+// A host's "site": registrable domain (private suffixes included: user.github.io is its own site),
+// an IP is itself, localhost and its subdomains are "localhost". Invalid/public suffix -> null.
 function siteOfHost(host) {
   host = String(host || '').toLowerCase().replace(/^\.+/, '').replace(/\.+$/, '');
   if (!host) return null;
@@ -39,8 +39,8 @@ function siteOfHost(host) {
 const siteOfOrigin = (o) => { try { const u = new URL(o); return /^(https?|wss?):$/.test(u.protocol) ? siteOfHost(u.hostname) : null; } catch { return null; } };
 const displaySite = (s) => { try { return url.domainToUnicode(s) || s; } catch { return s; } };
 
-// Kullanicinin yazdigini koruma girdisine cevir. URL, buyuk harf, bastaki/sondaki nokta, uluslararasi ad
-// (punycode'a cevrilir), port/yol temizlenir. Genel son ekler ("com", "co.uk", "github.io") reddedilir.
+// Turn user input into a protection entry. Handles URLs, uppercase, leading/trailing dots, IDNs
+// (converted to punycode); port/path are stripped. Public suffixes ("com", "co.uk", "github.io") are rejected.
 function normalizeInput(text) {
   let raw = String(text || '').trim();
   if (!raw) return { error: 'Bir alan adı ya da adres yazın.' };
@@ -59,7 +59,7 @@ function normalizeInput(text) {
   if (!parseTld) return { site: host, display: displaySite(host), kind: 'domain' };
   const p = parseTld(host, { allowPrivateDomains: true });
   if (!p.domain) {
-    const priv = p.isPrivate || parseTld(host).domain;   // ozel son ek mi (github.io gibi)
+    const priv = p.isPrivate || parseTld(host).domain;   // private suffix? (like github.io)
     return { error: priv
       ? `"${displaySite(host)}" ortak bir barındırma adı: altındaki her kullanıcı sitesi ayrıdır. Kendi sitenizi yazın (ör. kullaniciadi.${displaySite(host)}).`
       : `"${displaySite(host)}" bir genel son ek (ör. com, co.uk); site olarak korunamaz.` };
@@ -69,7 +69,7 @@ function normalizeInput(text) {
   return { site, display: displaySite(site), kind: 'domain', note, private: !!p.isPrivate };
 }
 
-// Bilinen kimlik saglayici bagimliliklari: oneri olarak gosterilir, ASLA kendiliginden eklenmez.
+// Known identity provider dependencies: shown as suggestions, NEVER added automatically.
 const IDP_DEPS = {
   'youtube.com': ['google.com'], 'gmail.com': ['google.com'], 'blogger.com': ['google.com'], 'google.com.tr': ['google.com'],
   'outlook.com': ['live.com', 'microsoftonline.com'], 'office.com': ['microsoftonline.com', 'live.com'], 'xbox.com': ['live.com'],
@@ -78,8 +78,8 @@ const IDP_DEPS = {
 };
 const IDP_NAMES = { 'google.com': 'Google', 'live.com': 'Microsoft hesabı', 'microsoftonline.com': 'Microsoft iş/okul hesabı', 'apple.com': 'Apple Kimliği', 'facebook.com': 'Facebook', 'instagram.com': 'Instagram' };
 
-// ---------------------------------------------------------------- Depolama anahtari
-// "https://a.test:8443/" | "https://embed.test:8443/^0https://a.test" | localStorage bicimi (sondaki / olmadan)
+// ---------------------------------------------------------------- Storage key
+// "https://a.test:8443/" | "https://embed.test:8443/^0https://a.test" | localStorage form (no trailing /)
 function parseStorageKey(key) {
   const parts = String(key).split('^');
   const origin = parts[0].replace(/\/$/, '');
@@ -89,9 +89,9 @@ function parseStorageKey(key) {
 }
 const isWebOrigin = (o) => /^https?:\/\//i.test(o);
 
-// ---------------------------------------------------------------- LevelDB anahtar okuyucu (localStorage envanteri)
-// Sadece anahtarlar okunur. Gunluk (.log) + tablo (.ldb) dosyalari, Snappy acici. Her anahtarin en yuksek sira
-// numarali kaydi gecerlidir (silme isaretleri dahil).
+// ---------------------------------------------------------------- LevelDB key reader (localStorage inventory)
+// Only keys are read. Log (.log) + table (.ldb) files, Snappy decompressor. The record with the highest
+// sequence number wins for each key (deletion markers included).
 function snappy(buf) {
   let pos = 0, len = 0, shift = 0;
   for (;;) { const b = buf[pos++]; len += (b & 0x7f) * 2 ** shift; if (b < 0x80) break; shift += 7; }
@@ -169,7 +169,7 @@ function readLog(file, add) {
     }
   }
 }
-// Local Storage leveldb: canli META:<depolama anahtari> listesi. Okunamazsa null (envanter bunu belirtir).
+// Local Storage leveldb: live META:<storage key> list. null if unreadable (the inventory reports it).
 function localStorageKeys(dir) {
   let files;
   try { files = fs.readdirSync(dir).filter((x) => /\.(log|ldb|sst)$/.test(x)); } catch { return null; }
@@ -181,12 +181,12 @@ function localStorageKeys(dir) {
     if (!cur || seq > cur.seq) latest.set(k, { seq, type });
   };
   for (const x of files) {
-    try { if (x.endsWith('.log')) readLog(path.join(dir, x), add); else readTable(path.join(dir, x), add); } catch { /* bozuk/yarim dosya: atla */ }
+    try { if (x.endsWith('.log')) readLog(path.join(dir, x), add); else readTable(path.join(dir, x), add); } catch { /* corrupt/partial file: skip */ }
   }
   return [...latest].filter(([, v]) => v.type === 1).map(([k]) => k);
 }
 
-// ---------------------------------------------------------------- QuotaManager (salt okunur kopya)
+// ---------------------------------------------------------------- QuotaManager (read-only copy)
 const WIN_EPOCH_US = 11644473600000000n;
 function quotaBuckets(storagePath) {
   const src = path.join(storagePath, 'WebStorage', 'QuotaManager');
@@ -216,12 +216,12 @@ function dirSize(d) {
   return n;
 }
 
-// ---------------------------------------------------------------- Modul
+// ---------------------------------------------------------------- Module
 function createSiteData({ getSession, getProtected, setProtected, openTabUrls, makeDebugTarget }) {
   let busy = false;
   let progress = null;
 
-  // CDP komutlari icin gecici, gizli bir hedef (ayni oturum). Is bitince kapatilir.
+  // Temporary hidden target for CDP commands (same session). Closed when done.
   async function withCdp(fn) {
     const t = await makeDebugTarget();
     try {
@@ -233,12 +233,12 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
     }
   }
 
-  // Gercek envanter: her kayit sahibi siteye (bolumlenmis veride UST DUZEY siteye) baglanir.
+  // Real inventory: each record maps to its owner site (the TOP-LEVEL site for partitioned data).
   async function collect(cdp, measure) {
     const ses = getSession();
     const storagePath = ses.getStoragePath();
     const items = [];   // { kind:'cookie'|'key', owner, ... }
-    // Cerezler (degerler hemen atilir)
+    // Cookies (values are discarded immediately)
     const ck = await cdp('Network.getAllCookies');
     for (const c of ck.cookies || []) {
       const host = c.domain.replace(/^\./, '');
@@ -249,7 +249,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
       items.push({ kind: 'cookie', owner, dataSite: own, name: c.name, domain: c.domain, path: c.path, partitionKey: c.partitionKey || null,
         session: !!c.session, httpOnly: !!c.httpOnly, secure: !!c.secure, id: `${c.name}|${c.domain}|${c.path}|${pk || ''}` });
     }
-    // Kota kovalari (IndexedDB, Cache Storage, service worker, OPFS)
+    // Quota buckets (IndexedDB, Cache Storage, service worker, OPFS)
     let bucketsOk = true, buckets = [];
     try { buckets = quotaBuckets(storagePath); } catch { bucketsOk = false; }
     const keyMap = new Map();
@@ -264,7 +264,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
       cur.lastModified = Math.max(cur.lastModified || 0, b.lastModified || 0) || null;
       keyMap.set(k.canonical, cur);
     }
-    // localStorage (kota disi)
+    // localStorage (outside quota)
     const ls = localStorageKeys(path.join(storagePath, 'Local Storage', 'leveldb'));
     for (const raw of ls || []) {
       const k = parseStorageKey(raw);
@@ -275,9 +275,9 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
       cur.sources.push('localStorage');
       keyMap.set(k.canonical, cur);
     }
-    // Kova KAYDI veri oldugu anlamina gelmez: Chromium silmeden sonra kaydi tutuyor (olculdu). Bu yuzden her kova
-    // gercek kullanimla olculur: birinci taraf -> motorun kota olcumu, bolumlenmis -> WebStorage/<kova> boyutu.
-    // Kullanimi 0 olan ve canli localStorage anahtari da olmayan kayit listelenmez (veri yok).
+    // A bucket RECORD does not mean data exists: Chromium keeps it after deletion (measured). So each bucket
+    // is measured by real usage: first-party -> engine quota usage, partitioned -> WebStorage/<bucket> size.
+    // Records with 0 usage and no live localStorage key are not listed (no data).
     for (const it of keyMap.values()) {
       if (!it.topSite) {
         try { const r = await cdp('Storage.getUsageAndQuota', { origin: it.origin }); it.bytes = r.usage; it.types = (r.usageBreakdown || []).filter((x) => x.usage > 0).map((x) => x.storageType); } catch { it.bytes = null; }
@@ -286,8 +286,8 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
         it.types = it.bytes ? ['bölümlenmiş'] : [];
       }
       const hasLs = it.sources.includes('localStorage');
-      if (it.bytes === 0 && !hasLs) continue;                     // bos (silinmis) kova
-      if (!it.bytes && hasLs && it.bytes !== null) it.bytes = null; // sadece localStorage: boyutu olculemez
+      if (it.bytes === 0 && !hasLs) continue;                     // empty (deleted) bucket
+      if (!it.bytes && hasLs && it.bytes !== null) it.bytes = null; // localStorage only: size unmeasurable
       items.push(it);
     }
     return { items, bucketsOk, lsOk: ls !== null };
@@ -299,7 +299,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
     return set;
   }
 
-  // Ayarlar sayfasindaki "Cerezler ve site verileri" listesi icin site bazinda ozet
+  // Per-site summary for the "Cookies and site data" list on the settings page
   async function inventory() {
     const P = new Set(getProtected());
     const open = openSites();
@@ -331,13 +331,13 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
   const RANGE_MS = { hour: 3600e3, day: 864e5, week: 7 * 864e5, month: 28 * 864e5 };
   const STORAGE_TYPES = 'file_systems,indexeddb,local_storage,service_workers,cache_storage,storage_buckets,shared_storage';
 
-  // Temizlik. opts: { cookies, siteData, protect, range: 'all'|'hour'|'day'|'week'|'month', onlySite? }
-  // onlySite: listeden tek siteyi silme (kullanicinin acik secimi, koruma o site icin gecerli degil).
+  // Clearing. opts: { cookies, siteData, protect, range: 'all'|'hour'|'day'|'week'|'month', onlySite? }
+  // onlySite: delete a single site from the list (explicit user choice; protection does not apply to it).
   async function clear(opts) {
     if (busy) return { error: 'Bir temizlik zaten sürüyor.' };
     busy = true;
     progress = { phase: 'envanter', done: 0, total: 0 };
-    const P = new Set(opts.protect ? getProtected() : []);   // tutarli anlik goruntu
+    const P = new Set(opts.protect ? getProtected() : []);   // consistent snapshot
     const range = RANGE_MS[opts.range] ? opts.range : 'all';
     const cutoff = range === 'all' ? 0 : Date.now() - RANGE_MS[range];
     const notes = [];
@@ -354,12 +354,12 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
           if (!inScope(it)) { if (P.has(it.owner)) kept.add(it.owner); continue; }
           if (it.kind === 'cookie') {
             if (!opts.cookies) continue;
-            if (range !== 'all') continue;   // motor cerezlerde olusturma zamani vermiyor (asagida not)
+            if (range !== 'all') continue;   // engine gives no cookie creation time (see note below)
             targets.push(it);
           } else {
             if (!opts.siteData) continue;
             if (range !== 'all') {
-              if (!it.sources.includes('kota') || !it.lastModified || it.lastModified < cutoff) continue;   // zamani bilinmeyen/eski
+              if (!it.sources.includes('kota') || !it.lastModified || it.lastModified < cutoff) continue;   // unknown time / too old
             }
             targets.push(it);
           }
@@ -382,7 +382,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
           }
           progress.done++;
         }
-        // Dogrulama: gercek envanteri tekrar oku
+        // Verification: re-read the real inventory
         progress = { phase: 'doğrulanıyor', done: targets.length, total: targets.length };
         await new Promise((r) => setTimeout(r, 400));
         const after = await collect(cdp, false);
@@ -396,7 +396,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
           remaining.push({ site: displaySite(it.owner), what: it.kind === 'cookie' ? `çerez "${it.name}"` : `depolama ${it.origin}${it.topSite ? ' (' + displaySite(siteOfOrigin(it.topSite) || it.topSite) + ' içinde)' : ''}`,
             reason: open.has(it.owner) || (it.dataSite && open.has(it.dataSite)) ? 'Bu sitenin açık sekmesi var; sayfa veriyi yeniden oluşturmuş olabilir.' : 'Silme isteği gönderildi ama veri hâlâ duruyor.' });
         }
-        // Temizlikten sonra yeni olusan (hedef listesinde olmayan) korunmayan veriler
+        // Unprotected data newly created after clearing (not in the target list)
         const targetIds = new Set(targets.map((it) => (it.kind === 'cookie' ? 'c:' + it.id : 'k:' + it.key)));
         const recreated = [];
         for (const it of after.items) {

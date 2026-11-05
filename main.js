@@ -1,36 +1,39 @@
 'use strict';
 /*
- * Mondium - hafif, gizlilik odakli tarayici (Electron / Chromium motoru)
- *  - Google hesabi / senkronizasyon / oturum acma zorunlulugu YOK
- *  - Telemetri, crash raporu, Safe Browsing, ceviri, yazim denetimi indirmesi KAPALI
- *  - Her zaman acik reklam/izleyici engelleyici (uBlock Origin filtre listeleri)
- *  - Google varsayilan arama; Google cerezleri/verileri kapanista silinir
- *  - WebHID / WebUSB / Web Serial / Web Bluetooth: tarayici tabanli cihaz yazilimi siteleri icin
- *  - Thorium'dan: DoH, DNT+GPC, paralel indirme, HEVC, yer isaretleri cubugu, ana sayfa dugmesi,
- *    yenile menusu (normal / sert / onbellegi temizle), tam URL gosterimi, sayfalari koyu gosterme
+ * Mondium - lightweight, privacy-focused browser (Electron / Chromium engine)
+ *  - NO required Google account / sync / sign-in
+ *  - Telemetry, crash reports, Safe Browsing, translation, spellcheck downloads are OFF
+ *  - Always-on ad/tracker blocker (uBlock Origin filter lists)
+ *  - Google is the default search; Google cookies/data are cleared on exit
+ *  - WebHID / WebUSB / Web Serial / Web Bluetooth: for browser-based device firmware sites
+ *  - From Thorium: DoH, DNT+GPC, parallel downloads, HEVC, bookmarks bar, home button,
+ *    reload menu (normal / hard / clear cache), full URL display, force dark pages
  */
 const {
   app, BaseWindow, WebContentsView, session, ipcMain, Menu, clipboard,
   dialog, shell, nativeTheme, net, Notification, webFrameMain, webContents, screen
 } = require('electron');
-// castLabs Electron (Widevine DRM). Standart Electron'da yoktur; o durumda DRM'siz calisilir.
+// castLabs Electron (Widevine DRM). Not in stock Electron; in that case we run without DRM.
 const { components } = require('electron');
 const I18N = require('./i18n');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const { pathToFileURL } = require('url');
-const { ElectronBlocker } = require('@ghostery/adblocker-electron');
+// The light engine (Ghostery adblocker) is loaded only when it is actually used (light engine selected, uBO failed,
+// or an incognito window): with uBO as the default this saves ~6.6 MB RAM and ~60 ms at startup.
+let ElectronBlockerLib = null;
+const ElectronBlockerLazy = () => ElectronBlockerLib || (ElectronBlockerLib = require('@ghostery/adblocker-electron').ElectronBlocker);
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
 
-// Test icin ayri profil klasoru: kullanicinin acik Mondium'una ve verilerine dokunmaz (tek kopya kilidi de klasore bagli)
+// Separate profile folder for tests: does not touch the user's running Mondium or data (single-instance lock is per folder too)
 if (process.env.MONDIUM_PROFILE) app.setPath('userData', process.env.MONDIUM_PROFILE);
 
-// Uzanti destegi (Chrome Web Magazasi + chrome.* API'leri). Yuklenemezse tarayici uzantisiz calismaya devam eder.
+// Extension support (Chrome Web Store + chrome.* APIs). If it fails to load, the browser keeps working without extensions.
 let ECE = null, CWS = null, extensions = null;
-try { ({ ElectronChromeExtensions: ECE } = require('electron-chrome-extensions')); } catch (e) { console.warn('Uzanti kutuphanesi yok:', e.message); }
-try { CWS = require('electron-chrome-web-store'); } catch (e) { console.warn('Web Magazasi kutuphanesi yok:', e.message); }
+try { ({ ElectronChromeExtensions: ECE } = require('electron-chrome-extensions')); } catch (e) { console.warn('Extension library missing:', e.message); }
+try { CWS = require('electron-chrome-web-store'); } catch (e) { console.warn('Web Store library missing:', e.message); }
 
 const isMac = process.platform === 'darwin';
 
@@ -41,73 +44,76 @@ const isMac = process.platform === 'darwin';
   const SKIP = /^(Cache|Code Cache|GPUCache|DawnGraphiteCache|DawnWebGPUCache|GPUPersistentCache|GrShaderCache|ShaderCache|blob_storage|Crashpad|DevToolsActivePort|Singleton.*|lockfile|filtre-motoru\.bin)$/i;
   try {
     fs.cpSync(src, dst, { recursive: true, force: false, errorOnExist: false, filter: (p) => !SKIP.test(path.basename(p)) });
-    console.log('Eski Chromium profili Mondium klasorune tasindi.');
-  } catch (e) { console.warn('Eski profil tasinamadi:', e.message); }
+    console.log('Old Chromium profile migrated to the Mondium folder.');
+  } catch (e) { console.warn('Could not migrate old profile:', e.message); }
 })();
 
-// Reklam engelleyici kutuphanesi, kapanmis karelerde betik calistiramayinca yakalanmamis hata birakiyor.
-// Zararsiz; terminali doldurmasin diye susturuluyor, diger hatalar yine gorunur.
+// The ad blocker library leaves an unhandled rejection when it cannot run a script in a closed frame.
+// Harmless; silenced so it doesn't flood the terminal, other errors still show.
 process.on('unhandledRejection', (e) => {
   if (e && /Script failed to execute/.test(e.message || '')) return;
-  console.error('Yakalanmamis hata:', e);
+  console.error('Unhandled rejection:', e);
 });
 
-// ---------------------------------------------------------------- Kalici ayarlar
+// ---------------------------------------------------------------- Persistent settings
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'ayarlar.json');
 const DEFAULTS = {
   searchEngine: 'google',
-  bookmarksBar: true,        // Thorium: varsayilan acik
-  fullUrl: true,             // Thorium: tam URL gosterimi
+  bookmarksBar: true,        // Thorium: on by default
+  fullUrl: true,             // Thorium: show full URL
   forceDarkPages: false,
-  strictIsolation: false,    // true = Chrome gibi her site ayri surecte (cok daha fazla RAM); false = sadece giris/odeme/korunan siteler ayri
-  clearGoogleOnExit: false,  // acikken Google cerez/site verisi kapanista silinir (Google oturumu kapanir)
-  keepLogins: true,          // sitelerdeki oturumlar kapanista kaybolmasin (oturum cerezleri kalici yapilir)
-  newtabTitle: 'Mondium',    // yeni sekme sayfasindaki baslik (bos = gizli)
+  strictIsolation: false,    // true = every site in its own process like Chrome (much more RAM); false = only login/payment/protected sites isolated
+  clearGoogleOnExit: false,  // when on, Google cookies/site data are cleared on exit (signs out of Google)
+  keepLogins: true,          // keep site logins across restarts (session cookies are made persistent)
+  newtabTitle: 'Mondium',    // title on the new tab page (empty = hidden)
   theme: 'sistem',
   firstRunDone: false,
-  shortcuts: [],             // yeni sekme sayfasindaki favoriler {title, url, icon}
+  shortcuts: [],             // favorites on the new tab page {title, url, icon}
   bookmarks: [],
-  sitePerms: {},             // "origin|izin" -> true/false
+  sitePerms: {},             // "origin|permission" -> true/false
   deviceGrants: [],          // {type, origin, vendorId, productId, serialNumber}
-  unpackedExtensions: [],    // klasorden yuklenen uzantilar
-  disabledExtensions: [],    // kapatilan uzantilar {id, path}: dosyalari durur, yuklenmez (RAM harcamaz)
-  hiddenExtensions: [],      // arac cubugunda simgesi gizlenen uzanti kimlikleri
-  hoverZoom: true,           // yerlesik resim buyutme (Imagus benzeri), varsayilan acik
-  tabAudio: true,            // sekmelerde hoparlor simgesi + tiklayinca sessize alma (kapaliyken ikisi de yok)
-  sleepTabs: true,           // kullanilmayan arka plan sekmelerini uyut (sleepMinutes sonra)
-  verticalTabs: false,       // dikey sekmeler (solda kenar cubugu)
-  verticalWidth: 240,        // dikey kenar cubugu genisligi (px); en dar halinde sadece simgeler
+  unpackedExtensions: [],    // extensions loaded from a folder
+  disabledExtensions: [],    // disabled extensions {id, path}: files kept, not loaded (no RAM)
+  hiddenExtensions: [],      // extension IDs whose toolbar icon is hidden
+  hoverZoom: true,           // built-in image hover zoom (Imagus-like), on by default
+  tabAudio: true,            // speaker icon on tabs + click to mute (both gone when off)
+  sleepTabs: true,           // put unused background tabs to sleep (after sleepMinutes)
+  verticalTabs: false,       // vertical tabs (sidebar on the left)
+  verticalWidth: 240,        // vertical sidebar width (px); at its narrowest only icons
   verticalAutoHide: false,
-  language: 'auto',         // arayuz dili: 'auto' (Windows dili) | 'tr' | 'en'
-  sideEdge: 2,               // GECICI test ayari: saklanma modunda kenar cubugunu acan sol kenar genisligi (px)
-  pitchBlack: false,         // koyu temada tam siyah
-  protectedSites: [],        // Korunan Siteler: temizlikte cerez ve site verisi silinmeyen siteler (kayit edilebilir alan adi)
-  clearPrefs: { range: 'all', history: true, downloads: false, cookies: true, cache: false, protect: true },   // temizleme penceresinin son secimi   // saklanma modu: kenar cubugu gizli, fare sol kenara gelince ayni genislikte acilir (Ctrl+S)
-  adblockEngine: 'ubo',      // 'ubo' = yerlesik uBlock Origin (en guclu, ~250 MB daha fazla RAM), 'hafif' = Mondium motoru
-  restoreSession: true,      // acilista onceki sekmeler (uyutulmus olarak) geri gelir
-  sleepMinutes: 10,          // arka plan sekmesi bu kadar dakika sonra uyutulur
-  downloadNotify: true       // indirme bitince Windows bildirimi
+  language: 'auto',         // UI language: 'auto' (Windows language) | 'tr' | 'en'
+  sideEdge: 2,               // TEMPORARY test setting: width (px) of the left edge that opens the sidebar in auto-hide mode
+  pitchBlack: false,         // pure black in dark theme
+  protectedSites: [],        // Protected Sites: cookies and site data not cleared on cleanup (registrable domain)
+  clearPrefs: { range: 'all', history: true, downloads: false, cookies: true, cache: false, protect: true },   // last choice in the clear-data dialog   // auto-hide mode: sidebar hidden, opens at the same width when the mouse hits the left edge (Ctrl+S)
+  adblockEngine: 'ubo',      // 'ubo' = built-in uBlock Origin (strongest, ~250 MB more RAM), 'hafif' = Mondium engine
+  restoreSession: true,      // previous tabs come back (asleep) on startup
+  sleepMinutes: 10,          // background tabs are put to sleep after this many minutes
+  downloadNotify: true       // Windows notification when a download finishes
 };
 const SLEEP_CHOICES = [5, 10, 30, 60];
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch {}
+// Installs from before language support were Turkish-only: keep them Turkish instead of following the system
+// language (which may be English even for Turkish users). New installs pick a language on the welcome page.
+if (settings.firstRunDone && !settings.languageSet) { if (settings.language === 'auto') settings.language = 'tr'; settings.languageSet = true; }
 let saveTimer = null;
 function saveSettings(now = false) {
   clearTimeout(saveTimer);
-  const write = () => { try { fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true }); fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch (e) { console.warn('Ayarlar kaydedilemedi:', e.message); } };
+  const write = () => { try { fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true }); fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch (e) { console.warn('Could not save settings:', e.message); } };
   if (now) write(); else saveTimer = setTimeout(write, 300);
 }
-// Eski kurulumlarda bir kez: kullanici sitelerde oturumun acik kalmasini istedi; Google silme kapatilir
+// Once on old installs: the user wanted site logins to persist; Google clearing is turned off
 if (!settings.keepLoginsSet) { settings.clearGoogleOnExit = false; settings.keepLogins = true; settings.keepLoginsSet = true; saveSettings(true); }
-// Kasim 2026: resim buyutme artik varsayilan acik (eski kurulumlarda dosyada "kapali" yazili oldugu icin bir kez acilir)
+// Nov 2026: image zoom is now on by default (turned on once, since old installs have "off" saved in the file)
 if (!settings.hoverZoomOnSet) { settings.hoverZoom = true; settings.hoverZoomOnSet = true; saveSettings(true); }
-// Eski "Hicbir zaman" (0 dk) secimi artik ayri anahtar
+// The old "Never" (0 min) choice is now a separate key
 if (!SLEEP_CHOICES.includes(settings.sleepMinutes)) { if (settings.sleepMinutes === 0) settings.sleepTabs = false; settings.sleepMinutes = 10; }
-const SIDE_MIN = 56;    // en dar: sadece sekme simgeleri
+const SIDE_MIN = 56;    // narrowest: tab icons only
 const sideWidth = (winWidth) => Math.round(Math.max(SIDE_MIN, Math.min(settings.verticalWidth || 240, Math.max(SIDE_MIN, Math.min(560, (winWidth || 1280) * 0.6)))));
 
 const SEARCH_ENGINES = {
-  google: { name: 'Google', url: 'https://www.google.com/search?pws=0&udm=14&q=' }, // pws=0: kisisellestirilmemis, udm=14: AI ozeti yok
+  google: { name: 'Google', url: 'https://www.google.com/search?pws=0&udm=14&q=' }, // pws=0: non-personalized, udm=14: no AI overview
   duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
   bing: { name: 'Bing', url: 'https://www.bing.com/search?q=' },
   brave: { name: 'Brave Search', url: 'https://search.brave.com/search?q=' },
@@ -116,7 +122,7 @@ const SEARCH_ENGINES = {
 };
 const searchUrl = () => (SEARCH_ENGINES[settings.searchEngine] || SEARCH_ENGINES.google).url;
 
-// ---------------------------------------------------------------- Filtre listeleri
+// ---------------------------------------------------------------- Filter lists
 const CUSTOM_LIST_URL = 'https://mondium.local/ozel-filtreler.txt';
 const CUSTOM_FILTERS = [
   '! Google kullanim kayitlari ve izleme pingleri',
@@ -143,7 +149,7 @@ const CONFIG = {
     'https://easylist.to/easylist/easylist.txt',
     'https://easylist.to/easylist/easyprivacy.txt',
     'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext',
-    'https://filters.adtidy.org/extension/ublock/filters/13.txt', // AdGuard Turkce
+    'https://filters.adtidy.org/extension/ublock/filters/13.txt', // AdGuard Turkish
     CUSTOM_LIST_URL
   ]
 };
@@ -156,7 +162,7 @@ const DOWNLOADS_URL = pathToFileURL(path.join(__dirname, 'downloads.html')).href
 const SETTINGS_URL = pathToFileURL(path.join(__dirname, 'settings.html')).href;
 const EXTENSIONS_URL = pathToFileURL(path.join(__dirname, 'extensions.html')).href;
 const baseOf = (u) => (typeof u === 'string' ? u.split('#')[0].split('?')[0] : '');
-// Adres cubugunda gorunen ve yazilabilen kisa adlar
+// Short names shown in and typeable into the address bar
 const PAGE_ALIASES = {
   'mondium://history': HISTORY_URL, 'mondium://gecmis': HISTORY_URL,
   'mondium://downloads': DOWNLOADS_URL, 'mondium://indirilenler': DOWNLOADS_URL,
@@ -182,7 +188,7 @@ function displayUrl(u) {
   return k ? '' : (u || '');
 }
 
-// ---------------------------------------------------------------- Gecmis ve indirme listesi (sadece bu bilgisayarda)
+// ---------------------------------------------------------------- History and download list (this computer only)
 const HISTORY_FILE = path.join(app.getPath('userData'), 'gecmis.json');
 const DOWNLOADS_FILE = path.join(app.getPath('userData'), 'indirilenler.json');
 const HISTORY_MAX = 5000, HISTORY_DAYS = 90, DOWNLOADS_MAX = 100;
@@ -192,14 +198,14 @@ const listTimers = {};
 function writeList(f, data, now) {
   clearTimeout(listTimers[f]);
   const json = () => JSON.stringify(data());
-  if (now) { try { fs.writeFileSync(f, json()); } catch (e) { console.warn('Yazilamadi:', f, e.message); } return; }
-  listTimers[f] = setTimeout(() => { fsp.writeFile(f, json()).catch((e) => console.warn('Yazilamadi:', f, e.message)); }, 2000);
+  if (now) { try { fs.writeFileSync(f, json()); } catch (e) { console.warn('Could not write:', f, e.message); } return; }
+  listTimers[f] = setTimeout(() => { fsp.writeFile(f, json()).catch((e) => console.warn('Could not write:', f, e.message)); }, 2000);
 }
 const saveHistory = (now = false) => writeList(HISTORY_FILE, () => history, now);
 const saveDownloads = (now = false) => writeList(DOWNLOADS_FILE, () => downloads.filter((d) => !d.incognito).map(({ item, ...d }) => d), now);
-// Oturum: acik sekmelerin adresleri. Yerel sayfalar kisa adlariyla (mondium://...) saklanir, klasor tasinsa da acilir.
+// Session: URLs of open tabs. Local pages are stored by short name (mondium://...) so they open even if the folder moves.
 const SESSION_FILE = path.join(app.getPath('userData'), 'oturum.json');
-// Gizli pencereler kaydedilmez. Son normal pencere kapaninca (veya cikarken) son kayit korunur.
+// Incognito windows are not saved. When the last normal window closes (or on quit) the last snapshot is kept.
 let lastSessionData = null, quitting = false;
 function sessionData() {
   saveCtx();
@@ -220,9 +226,9 @@ function sessionData() {
 }
 const saveSession = (now = false) => writeList(SESSION_FILE, sessionData, now);
 
-// ------------------------------------------- Arayuz dili (i18n.js). Turkce kaynak; Ingilizce ceviri sozlukten.
-// 'auto': Windows dili Turkce ise Turkce, degilse Ingilizce. Chromium'un kendi dili (siteye giden Accept-Language,
-// yerlesik PDF goruntuleyici) secilen dile gore acilista ayarlanir; arayuz degisikligi aninda uygulanir.
+// ------------------------------------------- UI language (i18n.js). Turkish source; English comes from the dictionary.
+// 'auto': Turkish if the Windows language is Turkish, otherwise English. Chromium's own language (Accept-Language sent
+// to sites, built-in PDF viewer) is set at startup from the chosen language; UI changes apply immediately.
 let uiLangCache = null;
 function uiLang() {
   if (uiLangCache) return uiLangCache;
@@ -232,12 +238,12 @@ function uiLang() {
   return (uiLangCache = /^tr/i.test(sys) ? 'tr' : 'en');
 }
 const T = (text) => I18N.translate(text, uiLang());
-// Sayfaya enjekte edilen betiklerdeki (okuma modu, resim buyutme) arayuz yazilari: tek tirnakli dizeler cevrilir
+// UI text in scripts injected into pages (reader mode, image zoom): single-quoted strings are translated
 const localizeSrc = (src) => (uiLang() === 'tr' ? src : src.replace(/'([^'\\\n]*)'/g, (m, x) => { const t = T(x); return t === x ? m : JSON.stringify(t); }));
 ipcMain.on('mondium-lang', (e) => { e.returnValue = uiLang(); });
 if (settings.language === 'en') app.commandLine.appendSwitch('lang', 'en-US');
 else if (settings.language === 'tr') app.commandLine.appendSwitch('lang', 'tr');
-// Yerel menuler, iletisim kutulari ve bildirimler secilen dilde
+// Native menus, dialogs and notifications in the chosen language
 const trMenu = (list) => list.map((it) => ({ ...it, ...(it.label ? { label: T(it.label) } : {}), ...(Array.isArray(it.submenu) ? { submenu: trMenu(it.submenu) } : {}) }));
 const trOpts = (o) => (o && typeof o === 'object' ? {
   ...o,
@@ -250,20 +256,20 @@ for (const k of ['showMessageBox', 'showMessageBoxSync', 'showOpenDialog', 'show
   if (typeof orig === 'function') dialog[k] = (w, o) => (o === undefined ? orig.call(dialog, trOpts(w)) : orig.call(dialog, w, trOpts(o)));
 }
 
-// ------------------------------------------- Gizlilik + performans komut satiri anahtarlari
+// ------------------------------------------- Privacy + performance command-line switches
 const cl = app.commandLine;
 [
-  // Not: 'disable-background-networking' ve 'disable-component-update' KULLANILMIYOR:
-  // ikisi de Widevine DRM modulunun indirilmesini/guncellenmesini engelliyor (Netflix, Exxen, BluTV, Spotify...).
-  // Electron'da zaten Safe Browsing, ceviri, senkronizasyon gibi arka plan servisleri yok.
+  // Note: 'disable-background-networking' and 'disable-component-update' are NOT used:
+  // both block downloading/updating the Widevine DRM module (Netflix, Exxen, BluTV, Spotify...).
+  // Electron has no background services like Safe Browsing, translation or sync anyway.
   'disable-domain-reliability',
   'disable-breakpad', 'disable-client-side-phishing-detection', 'disable-default-apps',
   'disable-sync', 'no-pings', 'no-default-browser-check', 'no-first-run',
   'process-per-site'
 ].forEach((s) => cl.appendSwitch(s));
 cl.appendSwitch('enable-features', [
-  'ParallelDownloading',            // Thorium: paralel indirme
-  'PlatformHEVCDecoderSupport',     // Thorium: HEVC/H.265 (donanim destekliyse)
+  'ParallelDownloading',            // Thorium: parallel downloads
+  'PlatformHEVCDecoderSupport',     // Thorium: HEVC/H.265 (if hardware supports it)
   ...(settings.forceDarkPages ? ['WebContentsForceDark'] : [])
 ].join(','));
 cl.appendSwitch('disable-features', [
@@ -271,11 +277,11 @@ cl.appendSwitch('disable-features', [
   'OptimizationHints', 'AutofillServerCommunication', 'CertificateTransparencyComponentUpdater',
   'BrowsingTopics', 'Fledge', 'InterestGroupStorage', 'PrivacySandboxAdsAPIs',
   'AttributionReportingCrossAppWeb', 'DialMediaRouteProvider',
-  'WebAuthenticationConditionalUI', 'WebAuthenticationPasskeysUI'   // passkey acilir pencereleri
+  'WebAuthenticationConditionalUI', 'WebAuthenticationPasskeysUI'   // passkey popups
 ].join(','));
-// RAM: tam site izolasyonu her ucuncu taraf iframe'i ayri surece koyuyor (olcum: 6 sitede 21 surec, 4,6 GB calisma
-// bellegi; kapaliyken 8 surec, 2,8 GB). Android Chrome gibi kismi izolasyon: genel siteler surec paylasir, giris,
-// odeme ve korunan siteler (oturum acilan yerler) yine kendi surecinde. Ayarlar > Gizlilik > tam izolasyon.
+// RAM: full site isolation puts every third-party iframe in its own process (measured: 6 sites, 21 processes, 4.6 GB
+// working set; off: 8 processes, 2.8 GB). Partial isolation like Android Chrome: general sites share processes, login,
+// payment and protected sites (where you sign in) still get their own. Settings > Privacy > full isolation.
 const ISOLATED_ORIGINS = ['https://accounts.google.com', 'https://login.microsoftonline.com', 'https://login.live.com', 'https://appleid.apple.com',
   'https://github.com', 'https://paypal.com', 'https://facebook.com', 'https://x.com', 'https://discord.com', 'https://web.whatsapp.com'];
 if (!settings.strictIsolation) {
@@ -285,40 +291,40 @@ if (!settings.strictIsolation) {
 }
 cl.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_interface_only');
 
-// Tarayicinin degistirilmemis, orijinal kimligi (Electron ve uygulama adi ekleriyle).
-// Google girisi SADECE bununla calisiyor (asagiya bakin).
+// The browser's unmodified, original identity (with the Electron and app name suffixes).
+// Google sign-in ONLY works with this (see below).
 const ORIGINAL_UA = app.userAgentFallback;
 
-// Diger tum siteler icin User-Agent'i normal Chrome gibi goster
+// For all other sites, make the User-Agent look like regular Chrome
 app.userAgentFallback = app.userAgentFallback
   .replace(/\s?Electron\/\S+/i, '')
   .replace(new RegExp('\\s?' + app.getName().replace(/[^\w]/g, '\\$&') + '\\/\\S+', 'i'), '');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 
-// ---------------------------------------------------------------- Google ile oturum acma duzeltmesi
-// Google, birebir "duz Chrome" gorunen ama gercek Chrome olmayan tarayicilari e-posta adimindan sonra
-// "This browser or app may not be secure" diyerek reddediyor. Firefox taklidi de yakalaniyor.
-// Olculmus calisan yontem: giris sayfalarinda tarayicinin kendi, degistirilmemis kimligini kullanmak
-// (Chrome surumu + uygulama adi + Electron ekleri). Istemci ipuclarina (Sec-CH-UA) dokunulmaz.
-// Kaynak: github.com/stablyai/orca/issues/11518 (Eylul 2026, 12/12 olcum)
+// ---------------------------------------------------------------- Google sign-in fix
+// Google rejects browsers that look exactly like "plain Chrome" but aren't real Chrome after the email step,
+// saying "This browser or app may not be secure". Spoofing Firefox is caught too.
+// Measured working approach: on sign-in pages use the browser's own, unmodified identity
+// (Chrome version + app name + Electron suffixes). Client hints (Sec-CH-UA) are left alone.
+// Source: github.com/stablyai/orca/issues/11518 (Sep 2026, 12/12 measurements)
 const LOGIN_UA = ORIGINAL_UA;
 const GOOGLE_LOGIN_HOST = /^accounts\.(google|youtube)\.[a-z.]+$/i;
 const isGoogleLogin = (u) => { try { return GOOGLE_LOGIN_HOST.test(new URL(u).hostname); } catch { return false; } };
-// Google arama: AI ozetlerini (AI Overview) kapat. udm=14 = sadece web sonuclari.
+// Google search: disable AI Overviews. udm=14 = web results only.
 const GOOGLE_HOST = /^(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?$/i;
 function noAiUrl(u) {
   try {
     const x = new URL(u);
     if (!GOOGLE_HOST.test(x.hostname) || x.pathname !== '/search') return null;
-    if (x.searchParams.has('udm') || x.searchParams.has('tbm')) return null;   // gorseller, haberler vb. sekmelere dokunma
+    if (x.searchParams.has('udm') || x.searchParams.has('tbm')) return null;   // leave images, news etc. tabs alone
     x.searchParams.set('udm', '14');
     return x.href;
   } catch { return null; }
 }
 
-// Bir adrese gitmeden once dogru kimlikle (User-Agent) yukle. Chromium, baslamis bir gezinmenin
-// kimligini sonradan degistirmez; bu yuzden giris sayfasina gitmeden ONCE ayarlayip bastan yukluyoruz.
+// Load a URL with the right identity (User-Agent) before navigating. Chromium does not change the UA
+// of a navigation already started, so we set it BEFORE going to the sign-in page and reload from scratch.
 function prepareUrl(wc, url) {
   const fixed = noAiUrl(url) || url;
   const ua = isGoogleLogin(fixed) ? LOGIN_UA : app.userAgentFallback;
@@ -341,14 +347,14 @@ function attachLoginFix(wc) {
     const main = typeof e.isMainFrame === 'boolean' ? e.isMainFrame : isMainFrame;
     if (main) reroute(e, e.url || url);
   });
-  // Giris bitince sonraki sayfalar icin normal Chrome kimligine don
+  // After sign-in, switch back to the normal Chrome identity for later pages
   wc.on('did-start-navigation', (e) => {
     if (!e.isMainFrame || !e.url || e.isSameDocument) return;
     if (!isGoogleLogin(e.url) && wc.getUserAgent() === LOGIN_UA) wc.setUserAgent(app.userAgentFallback);
   });
 }
 
-// ---------------------------------------------------------------- Durum
+// ---------------------------------------------------------------- State
 let win = null, ui = null, ses = null, mainSes = null, blocker = null;
 let findOpen = false, htmlFullscreen = false, overlayOpen = false, overlayKind = null;
 const TAB_STRIP = 42, TOOLBAR = 46, BOOKMARKS = 32, FINDBAR = 40;
@@ -359,10 +365,10 @@ const downloads = readJsonArray(DOWNLOADS_FILE)
   .map((d) => (d.state === 'progressing' ? { ...d, state: 'interrupted', paused: false } : d));
 let activeId = null, nextId = 1;
 
-// ---------------------------------------------------------------- Pencereler
-// Her pencerenin kendi sekmeleri, arayuzu, oturumu (gizli pencerede bellekte tutulan ayri oturum) ve durumu var.
-// Kodun geri kalani "su anki pencere" degiskenleriyle (win, ui, ses, tabs, activeId...) calisir; her olayin
-// basinda useWin() o olayin penceresine gecer. Bekleme (await) yoksa bu tek is parcacikli JS'de guvenlidir.
+// ---------------------------------------------------------------- Windows
+// Each window has its own tabs, UI, session (a separate in-memory session for incognito) and state.
+// The rest of the code works with "current window" variables (win, ui, ses, tabs, activeId...); at the start
+// of each event useWin() switches to that event's window. Safe in single-threaded JS as long as there is no await.
 const windows = [];
 let W = null, nextWinId = 1;
 function saveCtx() { if (W) Object.assign(W, { activeId, findOpen, htmlFullscreen, overlayOpen, overlayKind, pushTimer }); }
@@ -375,7 +381,7 @@ function useWin(w) {
 }
 const winOfWc = (wc) => { const t = wc && !wc.isDestroyed() ? byWcId.get(wc.id) : null; return t ? t.w : null; };
 const allTabs = () => windows.flatMap((w) => w.tabs);
-// Bir isi baska pencerede yap, sonra eski pencereye don
+// Run a job in another window, then switch back to the previous one
 function inWin(w, fn) {
   const prev = W;
   useWin(w);
@@ -387,7 +393,7 @@ const lastWin = (normalOnly) => windows.filter((w) => !normalOnly || !w.incognit
 const uiHeight = () => (htmlFullscreen ? 0
   : TAB_STRIP + TOOLBAR + (settings.bookmarksBar ? BOOKMARKS : 0) + (findOpen ? FINDBAR : 0));
 
-// ---------------------------------------------------------------- Reklam engelleyici
+// ---------------------------------------------------------------- Ad blocker
 const listSet = new Set(CONFIG.filterLists);
 const safeFetch = async (url, opts) => {
   if (url === CUSTOM_LIST_URL) return new Response(CUSTOM_FILTERS);
@@ -398,19 +404,19 @@ const safeFetch = async (url, opts) => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r;
   } catch (e) {
-    console.warn('Liste atlandi:', url, e.message);
+    console.warn('List skipped:', url, e.message);
     return new Response('');
   }
 };
 
 let blockerReadyResolve;
 const blockerReady = new Promise((r) => { blockerReadyResolve = r; });
-// v3: uBO varsayilan listelerinin tamami (resource-abuse + kotu amacli adresler). Liste degisince ad degisir, motor yeniden kurulur.
+// v3: all of uBO's default lists (resource-abuse + malicious URLs). When the list set changes, the name changes and the engine is rebuilt.
 const engineCache = () => path.join(app.getPath('userData'), 'filtre-motoru-v3.bin');
-const oldEngineCache = () => path.join(app.getPath('userData'), 'filtre-motoru-v2.bin');   // yenisi kurulana kadar kullanilir
+const oldEngineCache = () => path.join(app.getPath('userData'), 'filtre-motoru-v2.bin');   // used until the new one is built
 
 async function buildBlocker() {
-  const b = await ElectronBlocker.fromLists(safeFetch, CONFIG.filterLists, {
+  const b = await ElectronBlockerLazy().fromLists(safeFetch, CONFIG.filterLists, {
     enableCompression: true, loadCosmeticFilters: true, loadNetworkFilters: true
   });
   await fsp.writeFile(engineCache(), b.serialize());
@@ -423,33 +429,33 @@ async function loadBlocker() {
   for (const f of [engineCache(), oldEngineCache()]) {
     try {
       const st = await fsp.stat(f);
-      cached = ElectronBlocker.deserialize(new Uint8Array(await fsp.readFile(f)));
-      stale = f !== engineCache() || Date.now() - st.mtimeMs > CONFIG.filterUpdateDays * 864e5;   // eski surum: hemen yeniden kur
+      cached = ElectronBlockerLazy().deserialize(new Uint8Array(await fsp.readFile(f)));
+      stale = f !== engineCache() || Date.now() - st.mtimeMs > CONFIG.filterUpdateDays * 864e5;   // old version: rebuild right away
       break;
-    } catch { /* yok: digerini dene / ilk calistirma */ }
+    } catch { /* missing: try the other one / first run */ }
   }
   try {
     if (cached) {
       attachBlocker(cached);
-      if (stale) buildBlocker().then(attachBlocker).catch((e) => console.warn('Filtre guncellenemedi:', e.message));
+      if (stale) buildBlocker().then(attachBlocker).catch((e) => console.warn('Could not update filters:', e.message));
     } else {
       try { attachBlocker(await buildBlocker()); }
-      catch (e) { console.warn(e.message); attachBlocker(await ElectronBlocker.fromPrebuiltAdsAndTracking(safeFetch)); }
+      catch (e) { console.warn(e.message); attachBlocker(await ElectronBlockerLazy().fromPrebuiltAdsAndTracking(safeFetch)); }
     }
   } catch (e) {
-    console.error('Reklam engelleyici yuklenemedi:', e);
+    console.error('Could not load ad blocker:', e);
   }
   blockerReadyResolve();
   forEachWin(() => pushState());
 }
 
-// ---------------------------------------------------------------- Yerlesik uBlock Origin
-// Normal pencerelerde engellemeyi gercek uBlock Origin yapar (vendor/ublock, resmi chromium paketi; guncellemek icin
-// "node tools/ublock-guncelle.js"). Electron MV2 uzantilari ve engelleyen chrome.webRequest'i destekliyor; eksik API'ler
-// mv2-bridge.js + vendor/mondium-ece.js ile electron-chrome-extensions'a baglaniyor. Mondium'un kendi motoru (Ghostery)
-// bu durumda ana oturumda HIC yuklenmez (cift engelleyici yok, RAM yok); sadece gizli pencere acilinca o oturum icin
-// yuklenir. uBO yuklenemezse ana oturum da eskisi gibi Mondium'un motoruna doner.
-const UBO_DIR = path.join(__dirname, 'vendor', 'ublock').replace(/app\.asar(?=[\\/])/, 'app.asar.unpacked');   // uzantilar asar icinden yuklenemez
+// ---------------------------------------------------------------- Built-in uBlock Origin
+// In normal windows the real uBlock Origin does the blocking (vendor/ublock, official chromium package; to update run
+// "node tools/ublock-guncelle.js"). Electron supports MV2 extensions and blocking chrome.webRequest; missing APIs are
+// wired to electron-chrome-extensions via mv2-bridge.js + vendor/mondium-ece.js. Mondium's own engine (Ghostery)
+// is then NEVER loaded in the main session (no double blocker, no RAM); it only loads for the incognito session
+// when an incognito window opens. If uBO fails to load, the main session falls back to Mondium's engine as before.
+const UBO_DIR = path.join(__dirname, 'vendor', 'ublock').replace(/app\.asar(?=[\\/])/, 'app.asar.unpacked');   // extensions cannot load from inside asar
 let uboId = null;
 let eceReadyResolve;
 const eceReady = new Promise((r) => { eceReadyResolve = r; });
@@ -461,30 +467,30 @@ const uboPage = (p) => (uboId ? `chrome-extension://${uboId}/${p}` : null);
 
 async function startUBlock() {
   if (process.env.MONDIUM_NO_UBO || settings.adblockEngine === 'hafif' || !fs.existsSync(path.join(UBO_DIR, 'manifest.json'))) return false;
-  await eceReady;   // arac cubugu simgesi icin uzanti kutuphanesi once kurulmali
+  await eceReady;   // the extension library must be set up first for the toolbar icon
   try { mainSes.registerPreloadScript({ id: 'mondium-mv2-bridge', type: 'frame', filePath: path.join(__dirname, 'mv2-bridge.js') }); } catch {}
-  const e = await Promise.race([extApi().loadExtension(UBO_DIR, { allowFileAccess: false }), timeout(20000).then(() => { throw new Error('uBO yuklenemedi (20 sn)'); })]);
+  const e = await Promise.race([extApi().loadExtension(UBO_DIR, { allowFileAccess: false }), timeout(20000).then(() => { throw new Error('uBO failed to load (20 s)'); })]);
   uboId = e.id;
-  // uBO filtreleri onbellekten yukleyip hazir olana kadar sayfalar bekler (ilk istekler engelsiz kacmasin). En fazla 10 sn.
+  // Pages wait until uBO has loaded its filters from cache and is ready (so first requests don't slip through). At most 10 s.
   const t0 = Date.now();
   while (Date.now() - t0 < 10000) {
     const bg = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getURL().startsWith(`chrome-extension://${uboId}/background.html`));
     if (bg) { try { if (await Promise.race([bg.executeJavaScript('!!(self.µBlock && self.µBlock.readyToFilter)'), timeout(1000)])) break; } catch {} }
     await new Promise((r) => setTimeout(r, 100));
   }
-  console.log(`uBlock Origin ${e.version} hazir (${Date.now() - t0} ms)`);
+  console.log(`uBlock Origin ${e.version} ready (${Date.now() - t0} ms)`);
   return true;
 }
 async function startBlocking() {
   let ok = false;
-  try { ok = await startUBlock(); } catch (e) { console.warn('uBlock Origin baslatilamadi, Mondium motoru kullanilacak:', e.message); }
+  try { ok = await startUBlock(); } catch (e) { console.warn('Could not start uBlock Origin, falling back to Mondium engine:', e.message); }
   if (!ok) { blockSession(mainSes); await ensureGhostery(); }
   mainBlockResolve();
   forEachWin(() => pushState());
 }
 
 async function forceUpdateFilters() {
-  if (uboId && W && !W.incognito) { newTab(uboPage('dashboard.html#3p-filters.html')); return; }   // uBO kendi listelerini gunceller
+  if (uboId && W && !W.incognito) { newTab(uboPage('dashboard.html#3p-filters.html')); return; }   // uBO updates its own lists
   try {
     attachBlocker(await buildBlocker());
     dialog.showMessageBox(win, { message: 'Filtre listeleri güncellendi.' });
@@ -493,18 +499,18 @@ async function forceUpdateFilters() {
   }
 }
 
-// Kutuphane sayfa ici (kozmetik) engelleme icin genel iki IPC kanali kaydediyor ve ikinci oturumda "zaten kayitli"
-// hatasiyla yarida kaliyor (gizli pencerede ag engellemesi hic kurulmuyordu). Kanallar oturumdan bagimsiz
-// (istegi yapan sayfaya cevap veriyor); ana oturum kaydeder, digerleri paylasir.
+// The library registers two global IPC channels for in-page (cosmetic) blocking and aborts halfway on the second
+// session with "already registered" (network blocking was never set up in incognito). The channels are session-independent
+// (they reply to the requesting page); the main session registers them, the others share.
 function withSharedIpc(fn) {
   const h = ipcMain.handle, r = ipcMain.removeHandler;
-  ipcMain.handle = (ch, f) => { try { h.call(ipcMain, ch, f); } catch { /* ana oturumunki kullanilir */ } };
+  ipcMain.handle = (ch, f) => { try { h.call(ipcMain, ch, f); } catch { /* the main session's handler is used */ } };
   ipcMain.removeHandler = () => {};
   try { return fn(); } finally { ipcMain.handle = h; ipcMain.removeHandler = r; }
 }
 function blockerToggle(b, s, on) {
   const run = () => (on ? b.enableBlockingInSession(s) : b.disableBlockingInSession(s));
-  try { if (s === mainSes) run(); else withSharedIpc(run); } catch (e) { console.warn('Engelleyici:', e.message); }
+  try { if (s === mainSes) run(); else withSharedIpc(run); } catch (e) { console.warn('Blocker:', e.message); }
 }
 const blockerSessions = new Set();
 function blockSession(s) {
@@ -512,19 +518,19 @@ function blockSession(s) {
   blockerSessions.add(s);
   if (blocker) blockerToggle(blocker, s, true);
 }
-// Kutuphane hatasi: bir iframe'in istedigi sayfa ici betikleri (uBO scriptlet) o iframe'e degil ANA sayfaya
-// calistiriyor (event.sender = tum sekme). YouTube gibi cok iframe'li sayfalarda ayni betikler ana sayfaya defalarca
-// girip birbirini sariyor ("JSONPath zaten tanimli", sonsuz ozyineleme) ve oynatici bozulabiliyordu.
-// Duzeltme: betik ve CSS istegi yapan karede (senderFrame) calistirilir.
-// Zamanlama: uBlock Origin sayfa ici betikleri sayfanin kendi kodundan ONCE calistirir. Kutuphane ise sayfa
-// yuklenmeye basladiktan sonra, ana surece gidip gelen bir mesajla enjekte ediyor; YouTube'un ilk satir ici betigi
-// kaciyor ve oynatici ~8 sn zaman asimini bekliyordu. Bu yuzden ana karenin betiklerini page-preload esitlemeli
-// olarak ister ve sayfanin kodundan once calistirir; kutuphanenin gec enjeksiyonu o kare icin atlanir.
+// Library bug: in-page scripts (uBO scriptlets) requested by an iframe run in the MAIN page, not that iframe
+// (event.sender = whole tab). On iframe-heavy pages like YouTube the same scripts entered the main page many times
+// and wrapped each other ("JSONPath already defined", infinite recursion), which could break the player.
+// Fix: scripts and CSS run in the requesting frame (senderFrame).
+// Timing: uBlock Origin runs in-page scripts BEFORE the page's own code. The library instead injects them after
+// the page starts loading, via a round-trip message to the main process; YouTube's first inline script slipped
+// past and the player waited for a ~8 s timeout. So page-preload requests the main frame's scripts synchronously
+// and runs them before the page's code; the library's late injection is skipped for that frame.
 let tldParse = null;
 try { ({ parse: tldParse } = require('tldts-experimental')); } catch {}
-// Sayfa onyukleyicisi sol kenar algilama genisligini acilista sorar (GECICI test ayari)
+// The page preload asks for the left-edge detection width at startup (TEMPORARY test setting)
 ipcMain.on('mondium-edge-px', (e) => { e.returnValue = settings.sideEdge || 2; });
-// Saklanma modu: fare sayfanin sol kenarina gelince (page-preload bildirir) kenar cubugu acilir
+// Auto-hide mode: the sidebar opens when the mouse reaches the page's left edge (reported by page-preload)
 ipcMain.on('mondium-edge', (e) => {
   const w = winOfWc(e.sender);
   if (!w || !settings.verticalTabs || !settings.verticalAutoHide) return;
@@ -543,7 +549,7 @@ ipcMain.on('mondium-scriptlets', (e, url) => {
     });
     if (active === false) return;
     e.returnValue = scripts;
-  } catch (err) { console.warn('Sayfa ici betikler alinamadi:', err.message); }
+  } catch (err) { console.warn('Could not get in-page scripts:', err.message); }
 });
 function fixCosmeticTarget(b) {
   if (b.mondiumFrameFix) return;
@@ -553,14 +559,14 @@ function fixCosmeticTarget(b) {
     const frame = event.senderFrame;
     if (!frame) return orig(event, url, msg);
     const isMain = !frame.parent;
-    // Sekmelerimizin ana karesi betiklerini page-preload'dan zaten aldi (bu istek ondan once de gelebiliyor)
+    // Our tabs' main frame already got its scripts from page-preload (this request may even arrive before that)
     const early = isMain && byWcId.has(event.sender.id);
     const sender = {
       insertCSS: (css, o) => (isMain ? event.sender.insertCSS(css, o).catch(() => {})
         : frame.executeJavaScript(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(css)}; (document.head || document.documentElement).appendChild(s); })()`).catch(() => {})),
-      // Her betik kendi kapsaminda: motor YouTube icin 35 ayri betik uretiyor; ayni genel alanda calisinca
-      // "class JSONPath" ikinci kez tanimlanamiyor (6 betik hic calismiyordu) ve ortak safeSelf() uzerine yazilinca
-      // sarmalayicilar kendini cagirip sonsuz ozyinelemeye giriyordu. uBlock Origin de betikleri ayri kapsamda calistirir.
+      // Each script in its own scope: the engine produces 35 scripts for YouTube; in one shared global scope
+      // "class JSONPath" can't be defined twice (6 scripts never ran) and once the shared safeSelf() was overwritten
+      // the wrappers called themselves into infinite recursion. uBlock Origin also runs scripts in separate scopes.
       executeJavaScript: (code, gesture) => { if (early) return; frame.executeJavaScript(`(function () {\n${code}\n})();`, gesture).catch(() => {}); }
     };
     return orig({ frameId: event.frameId, processId: event.processId, sender, senderFrame: frame }, url, msg);
@@ -568,7 +574,7 @@ function fixCosmeticTarget(b) {
 }
 function attachBlocker(b) {
   fixCosmeticTarget(b);
-  const list = [...blockerSessions].sort((x, y) => (y === mainSes) - (x === mainSes));   // ana oturum once
+  const list = [...blockerSessions].sort((x, y) => (y === mainSes) - (x === mainSes));   // main session first
   if (blocker) for (const s of list) blockerToggle(blocker, s, false);
   for (const s of list) blockerToggle(b, s, true);
   blocker = b;
@@ -579,9 +585,9 @@ function attachBlocker(b) {
   forEachWin(() => pushState());
 }
 
-// Acilista ilk istekler engelsiz kacmasin diye engelleyici kisa sure beklenir. Bekleme ASLA kullaniciyi kilitlememeli:
-// en fazla 3 sn, ve bir kez dolunca (ya da hazir olunca) bir daha hic beklenmez. (Eskiden her gezinmede 15 sn'ye kadar
-// bekleyebiliyordu: engelleyici takilirsa adres cubugunda Enter "hicbir sey yapmiyor" gibi gorunuyordu.)
+// At startup we briefly wait for the blocker so first requests don't slip through. The wait must NEVER lock the user:
+// at most 3 s, and once it has elapsed (or the blocker is ready) we never wait again. (It used to wait up to 15 s per
+// navigation: if the blocker hung, Enter in the address bar seemed to "do nothing".)
 let mainBlockSettled = false;
 mainBlockReady.then(() => { mainBlockSettled = true; });
 setTimeout(() => { mainBlockSettled = true; }, 12000);
@@ -596,7 +602,7 @@ async function go(wc, url) {
   wc.loadURL(p.url, { userAgent: p.ua }).catch(() => {});
 }
 
-// ---------------------------------------------------------------- Google verisi temizleme
+// ---------------------------------------------------------------- Google data cleanup
 const GOOGLE_DOMAIN = /(^|\.)google(\.[a-z]{2,3}){1,2}$/i;
 async function clearGoogleData() {
   const ses = mainSes;
@@ -610,13 +616,13 @@ async function clearGoogleData() {
       await ses.clearStorageData({ origin, storages: ['localstorage', 'indexdb', 'serviceworkers', 'cachestorage', 'websql'] }).catch(() => {});
     }
     await ses.cookies.flushStore().catch(() => {});
-  } catch (e) { console.warn('Google verisi temizlenemedi:', e.message); }
+  } catch (e) { console.warn('Could not clear Google data:', e.message); }
 }
 
-// ---------------------------------------------------------------- Oturumlari koru
-// Bircok site girisi "oturum cerezi" (son kullanma tarihi olmayan) ile tutar. Bunlar tarayici kapaninca silinir
-// ve her acilista yeniden giris gerekir. Chrome "kaldigin yerden devam et" acikken bunlari saklar; burada da
-// kapanista (ve 15 dakikada bir, cokmeye karsi) 30 gunluk kalici cereze cevrilir. Hepsi sadece bu bilgisayarda kalir.
+// ---------------------------------------------------------------- Keep logins
+// Many sites keep logins in "session cookies" (no expiry date). They are deleted when the browser closes
+// and you must sign in again on every start. Chrome keeps them when "continue where you left off" is on; here
+// they are turned into 30-day persistent cookies on exit (and every 15 minutes, against crashes). All stays on this computer.
 const KEEP_DAYS = 30;
 async function keepSessionCookies() {
   const ses = mainSes;
@@ -634,17 +640,17 @@ async function keepSessionCookies() {
       return ses.cookies.set(d).then(() => { n++; }, () => {});
     }));
     await ses.cookies.flushStore().catch(() => {});
-  } catch (e) { console.warn('Oturumlar saklanamadi:', e.message); }
+  } catch (e) { console.warn('Could not keep sessions:', e.message); }
   return n;
 }
 
-// ---------------------------------------------------------------- Oturum
+// ---------------------------------------------------------------- Session
 const originOf = (u) => { try { return new URL(u).origin; } catch { return ''; } };
 const hostOf = (u) => { try { return new URL(u).host; } catch { return u || ''; } };
 
-// ---------------------------------------------------------------- Izin balonu (Chrome gibi)
-// Adres cubugunun sol altindan acilan balon: "<site> sunu istiyor: [simge] Konumunuzu bilmek  [Engelle] [Izin ver]".
-// Ayni pencerede birden cok istek gelirse sirayla sorulur. Ayri pencere/surec acmaz, arayuz katmaninda cizilir.
+// ---------------------------------------------------------------- Permission bubble (like Chrome)
+// Bubble below the left of the address bar: "<site> wants to: [icon] Know your location  [Block] [Allow]".
+// Multiple requests in the same window are asked in turn. No extra window/process; drawn in the UI layer.
 const PERM_TEXT = {
   geolocation: { icon: 'location', text: 'Konumunuzu bilmek' },
   notifications: { icon: 'bell', text: 'Bildirim göstermek' },
@@ -659,7 +665,7 @@ function mediaText(details) {
   if (t.includes('audio')) rows.push({ icon: 'mic', text: 'Mikrofonunuzu kullanmak' });
   return rows;
 }
-// Chrome'un uzanti ekleme penceresindeki "Sunlari yapabilir" listesi
+// The "It can:" list from Chrome's add-extension dialog
 function extPermissionRows(m) {
   m = m || {};
   const perms = new Set([...(m.permissions || []), ...(m.optional_permissions || [])].filter((p) => typeof p === 'string'));
@@ -728,8 +734,8 @@ function answerPrompt(arg) {
   if (p) settlePrompt(p, arg.answer === 'ok' ? 'ok' : arg.answer === 'cancel' ? 'cancel' : 'dismiss');
 }
 
-// Gizli pencere oturumu: "persist:" olmadigi icin diskte hicbir sey tutulmaz. Tum gizli pencereler paylasir,
-// sonuncusu kapaninca icindeki her sey silinir.
+// Incognito session: no "persist:" prefix, so nothing is kept on disk. Shared by all incognito windows;
+// everything in it is cleared when the last one closes.
 let incognitoSes = null;
 const incognitoPerms = {};
 function getIncognitoSession() {
@@ -748,7 +754,7 @@ function setupSession(ses = mainSes, incognito = false) {
   ses.setSpellCheckerEnabled(false);
   ses.setUserAgent(app.userAgentFallback);
 
-  // Thorium: DNT + Global Privacy Control varsayilan acik
+  // Thorium: DNT + Global Privacy Control on by default
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
     details.requestHeaders['DNT'] = '1';
     if (isGoogleLogin(details.url)) details.requestHeaders['User-Agent'] = LOGIN_UA;
@@ -756,15 +762,15 @@ function setupSession(ses = mainSes, incognito = false) {
     cb({ requestHeaders: details.requestHeaders });
   });
 
-  // ---- Site izinleri (Chrome gibi: karar hatirlanir)
+  // ---- Site permissions (like Chrome: the decision is remembered)
   const alwaysAllow = new Set([
     'fullscreen', 'clipboard-sanitized-write', 'pointerLock', 'keyboardLock',
-    // Video oynaticilar icin gerekli: DRM (EME), gomulu oynaticilarin cerez erisimi, ses cikisi secimi
+    // Needed by video players: DRM (EME), cookie access for embedded players, audio output selection
     'mediaKeySystem', 'storage-access', 'top-level-storage-access', 'speaker-selection', 'persistent-storage'
   ]);
   const deviceKinds = new Set(['hid', 'usb', 'serial', 'bluetooth']);
-  // Karar Chrome gibi adres cubugunun altindan acilan balonda sorulur (askPermission). Izin ver / Engelle
-  // hatirlanir; kapatma (x) ya da disari tiklama sadece bu seferlik reddeder. Gizli pencerede kararlar kalici olmaz.
+  // Like Chrome, the decision is asked in a bubble below the address bar (askPermission). Allow / Block are
+  // remembered; closing (x) or clicking outside only denies this once. In incognito, decisions are not persisted.
   const perms = incognito ? incognitoPerms : settings.sitePerms;
   const known = (key) => (key in perms ? perms[key] : key in settings.sitePerms && settings.sitePerms[key] === false ? false : undefined);
   ses.setPermissionRequestHandler((wc, permission, cb, details) => {
@@ -791,9 +797,9 @@ function setupSession(ses = mainSes, incognito = false) {
   });
 
   setupDevices(ses);
-  if (incognito) { blockSession(ses); ensureGhostery(); }   // ana oturumu startBlocking() belirler
+  if (incognito) { blockSession(ses); ensureGhostery(); }   // the main session is decided by startBlocking()
 
-  // Indirmeler: dogrudan Indirilenler klasorune
+  // Downloads: straight to the Downloads folder
   ses.on('will-download', (_e, item, wc) => {
     const ow = winOfWc(wc);
     if (ow) useWin(ow);
@@ -823,7 +829,7 @@ function setupSession(ses = mainSes, incognito = false) {
   });
 }
 
-// Bildirim nesnesi tiklanana kadar tutulur (yoksa cop toplayici tiklama olayini kaybettirir)
+// The notification object is kept until clicked (otherwise garbage collection loses the click event)
 const liveNotes = new Set();
 function notifyDownload(d) {
   if (!settings.downloadNotify || !Notification.isSupported()) return;
@@ -836,9 +842,9 @@ function notifyDownload(d) {
   n.show();
 }
 
-// ---------------------------------------------------------------- Cihaz destegi (WebHID / WebUSB / Serial / Bluetooth)
-// ATK, VIA, Razer/Logitech web surucu, Arduino web yukleyici, ESP web flasher gibi siteler bunlari kullanir.
-const sessionDeviceIds = new Set();   // bu oturumda secilen cihazlar
+// ---------------------------------------------------------------- Device support (WebHID / WebUSB / Serial / Bluetooth)
+// Used by sites like ATK, VIA, Razer/Logitech web drivers, Arduino web uploader, ESP web flasher.
+const sessionDeviceIds = new Set();   // devices chosen in this session
 const hex4 = (n) => (typeof n === 'number' ? n.toString(16).padStart(4, '0') : String(n || '').replace(/^0x/i, '')).toUpperCase();
 const sameDevice = (g, type, origin, d) => g.type === type && g.origin === origin &&
   hex4(g.vendorId) === hex4(d.vendorId) && hex4(g.productId) === hex4(d.productId) &&
@@ -856,8 +862,8 @@ const usbInfo = (d) => ({ id: d.deviceId, name: [d.manufacturerName, d.productNa
 const serialInfo = (p) => ({ id: p.portId, name: p.displayName || p.portName || 'Seri bağlantı noktası', detail: [p.portName, p.vendorId ? `VID ${hex4(p.vendorId)} · PID ${hex4(p.productId)}` : ''].filter(Boolean).join(' · '), raw: p });
 const btInfo = (d) => ({ id: d.deviceId, name: d.deviceName || 'Bilinmeyen cihaz (' + d.deviceId + ')', detail: d.deviceId, raw: d });
 
-// Cihaz secici: Chrome'daki gibi adres cubugunun altindan acilan balon.
-// Ayri pencere/surec acmaz; mevcut arayuz katmaninda cizilir.
+// Device chooser: a bubble below the address bar, like in Chrome.
+// No extra window/process; drawn in the existing UI layer.
 let chooser = null;
 function openChooser(kind, origin, list, wc) {
   if (chooser) finishChooser(null);
@@ -902,7 +908,7 @@ function frameOrigin(details, fallbackWc) {
 
 const wcOfFrame = (f) => { try { return f ? webContents.fromFrame(f) : null; } catch { return null; } };
 function setupDevices(ses) {
-  // ---- WebHID (ATK, VIA, oyuncu fare/klavye yazilimlari)
+  // ---- WebHID (ATK, VIA, gaming mouse/keyboard software)
   ses.on('select-hid-device', (event, details, callback) => {
     event.preventDefault();
     const origin = frameOrigin(details);
@@ -926,7 +932,7 @@ function setupDevices(ses) {
   ses.on('usb-device-added', (_e, device) => device && chooserAdd('usb', usbInfo(device)));
   ses.on('usb-device-removed', (_e, device) => device && chooserRemove('usb', device.deviceId));
 
-  // ---- Web Serial (Arduino / ESP32 web yukleyicileri)
+  // ---- Web Serial (Arduino / ESP32 web uploaders)
   ses.on('select-serial-port', (event, portList, wc, callback) => {
     event.preventDefault();
     const origin = frameOrigin(null, wc);
@@ -938,14 +944,14 @@ function setupDevices(ses) {
   ses.on('serial-port-added', (_e, port) => port && chooserAdd('serial', serialInfo(port)));
   ses.on('serial-port-removed', (_e, port) => port && chooserRemove('serial', port.portId));
 
-  // ---- Daha once izin verilen cihazlar (sayfa yenilense de / tarayici kapansa da hatirlanir)
+  // ---- Previously allowed devices (remembered across page reloads / browser restarts)
   ses.setDevicePermissionHandler((details) => {
     const d = details.device || {};
     if (sessionDeviceIds.has(d.deviceId) || sessionDeviceIds.has(d.portId)) return true;
     return settings.deviceGrants.some((g) => sameDevice(g, details.deviceType, details.origin, d));
   });
 
-  // ---- Bluetooth eslestirme (PIN onayi)
+  // ---- Bluetooth pairing (PIN confirmation)
   if (typeof ses.setBluetoothPairingHandler === 'function') {
     ses.setBluetoothPairingHandler((details, callback) => {
       if (details.pairingKind === 'confirm' || details.pairingKind === 'confirmPin') {
@@ -961,7 +967,7 @@ function setupDevices(ses) {
   }
 }
 
-// Web Bluetooth secimi webContents uzerinden gelir
+// Web Bluetooth selection comes through webContents
 function attachBluetooth(wc) {
   let pending = null;
   wc.on('select-bluetooth-device', (event, devices, callback) => {
@@ -976,14 +982,14 @@ function attachBluetooth(wc) {
   });
 }
 
-// ---------------------------------------------------------------- Sekmeler
+// ---------------------------------------------------------------- Tabs
 function toUrl(input) {
   const s = (input || '').trim();
   if (!s) return newtabUrl();
-  const hashAt = s.indexOf('#');   // mondium://settings#korunan gibi bolum baglantilari
+  const hashAt = s.indexOf('#');   // section links like mondium://settings#korunan
   const alias = PAGE_ALIASES[(hashAt < 0 ? s : s.slice(0, hashAt)).toLowerCase().replace(/\/+$/, '')];
   if (alias) return hashAt < 0 ? alias : alias + '#' + encodeURIComponent(s.slice(hashAt + 1));
-  if (/^(https?|file|about|data|view-source|chrome-extension|blob):/i.test(s)) return s;   // uzanti sayfalari da adres
+  if (/^(https?|file|about|data|view-source|chrome-extension|blob):/i.test(s)) return s;   // extension pages are URLs too
   if (/^localhost(:\d+)?(\/|$)/i.test(s) || /^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(s)) return 'http://' + s;
   if (!/\s/.test(s) && /^[^\s/]+\.[a-z]{2,}(:\d+)?(\/.*)?$/i.test(s)) return 'https://' + s;
   return searchUrl() + encodeURIComponent(s);
@@ -993,14 +999,14 @@ function createView(tab) {
   const view = new WebContentsView({
     webPreferences: {
       sandbox: true, contextIsolation: true, nodeIntegration: false,
-      spellcheck: false, backgroundThrottling: true, session: ses, plugins: true,   // plugins: yerlesik PDF goruntuleyici
+      spellcheck: false, backgroundThrottling: true, session: ses, plugins: true,   // plugins: built-in PDF viewer
       preload: path.join(__dirname, 'page-preload.js')
     }
   });
   view.setBackgroundColor((effectiveTheme().page) || (nativeTheme.shouldUseDarkColors ? '#202124' : '#ffffff'));
   const wc = view.webContents;
   if (!tab.w) tab.w = W;
-  // Bu sekmenin olaylari her zaman kendi penceresinin baglaminda calisir
+  // This tab's events always run in the context of its own window
   const on = (ev, fn) => wc.on(ev, (...args) => { useWin(tab.w); return fn(...args); });
   wc.setWebRTCIPHandlingPolicy('default_public_interface_only');
   tab.view = view;
@@ -1025,7 +1031,7 @@ function createView(tab) {
   on('did-create-window', (child, details) => {
     if (child.setMenu) child.setMenu(null);
     const cwc = child.webContents;
-    attachLoginFix(cwc);                         // "Google ile giris yap" acilir pencereleri
+    attachLoginFix(cwc);                         // "Sign in with Google" popups
     const u = (details && details.url) || cwc.getURL();
     if (isGoogleLogin(u)) { cwc.setUserAgent(LOGIN_UA); cwc.loadURL(u, { userAgent: LOGIN_UA }).catch(() => {}); }
   });
@@ -1051,7 +1057,7 @@ function createView(tab) {
   on('did-navigate-in-page', (_e, url, isMain) => {
     if (!isMain) return;
     tab.url = url;
-    if (!tab.hist || tab.hist.url.split('#')[0] !== url.split('#')[0]) recordVisit(tab, url, wc);   // YouTube gibi tek sayfa siteler
+    if (!tab.hist || tab.hist.url.split('#')[0] !== url.split('#')[0]) recordVisit(tab, url, wc);   // single-page sites like YouTube
     pushState();
   });
   on('did-fail-load', (_e, code, _desc, _url, isMain) => {
@@ -1059,7 +1065,7 @@ function createView(tab) {
   });
   on('audio-state-changed', (e) => { tab.audible = e.audible; schedulePush(); });
   on('dom-ready', () => { if (settings.hoverZoom) applyHoverZoom(wc); });
-  // Ses yukseltme acikken yeni yuklenen sayfa ve gomulu oynaticilara da uygula
+  // While volume boost is on, apply it to newly loaded pages and embedded players too
   on('did-frame-finish-load', (_e, isMain, pid, rid) => {
     if ((tab.volume || 100) === 100) return;
     applyVolume(wc, isMain ? null : webFrameMain.fromId(pid, rid), tab.volume);
@@ -1075,11 +1081,11 @@ function createView(tab) {
   return view;
 }
 
-// Ayni gun ayni adres tek satirda tutulur (en uste tasinir). Yenileme ve uyanan sekme yeni kayit acmaz.
+// The same URL on the same day is kept as one row (moved to the top). Reloads and waking tabs add no new entry.
 function recordVisit(tab, url, wc) {
-  if (!/^https?:/i.test(url || '') || (tab.w && tab.w.incognito)) return;   // gizli pencere gecmise yazmaz
+  if (!/^https?:/i.test(url || '') || (tab.w && tab.w.incognito)) return;   // incognito does not write history
   if (tab.hist && tab.hist.url === url && history.includes(tab.hist)) return;
-  const now = Math.max(Date.now(), history.length ? history[0].t + 1 : 0);   // t ayni zamanda kimlik: benzersiz
+  const now = Math.max(Date.now(), history.length ? history[0].t + 1 : 0);   // t is also the ID: must be unique
   const dayStart = new Date().setHours(0, 0, 0, 0);
   let e = null;
   for (let i = 0; i < history.length && history[i].t >= dayStart; i++) {
@@ -1096,12 +1102,12 @@ function recordVisit(tab, url, wc) {
   notifyPages('history');
 }
 
-// Onceki oturum: sekmeler uyutulmus (bellek kullanmayan) halde geri gelir, sadece etkin olan yuklenir.
+// Previous session: tabs come back asleep (using no memory), only the active one is loaded.
 function restoreSession() {
   if (!settings.restoreSession) return false;
   let data = null;
   try { data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')); } catch { return false; }
-  const wins = data && Array.isArray(data.windows) ? data.windows : data && Array.isArray(data.tabs) ? [data] : [];   // eski bicim: tek pencere
+  const wins = data && Array.isArray(data.windows) ? data.windows : data && Array.isArray(data.tabs) ? [data] : [];   // old format: single window
   let any = false;
   for (const entry of wins.slice(0, 20)) {
     if (any) createWindow();
@@ -1125,7 +1131,7 @@ function restoreWindow(data) {
   return true;
 }
 
-// Gecmis / indirilenler: acik sekmesi varsa ona gec, yeni sekmedeysen orada ac, yoksa yeni sekme
+// History / downloads: switch to its tab if open, open in place if on a new tab page, else a new tab
 function openPage(url) {
   if (W && W.incognito) {
     const n = lastWin(true);
@@ -1138,7 +1144,7 @@ function openPage(url) {
   newTab(url);
 }
 
-// Sabitlenmis sekmeler her zaman solda (sort kararlidir, diger sira korunur)
+// Pinned tabs always on the left (sort is stable, the rest keep their order)
 const orderPinned = () => tabs.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
 function newTab(url, background = false, openerId = null, at = -1) {
@@ -1192,7 +1198,7 @@ function destroyView(tab) {
   tab.view = null;
 }
 
-// Kapanan sekmeler (Ctrl+Shift+T ile geri acilir). Sadece adres tutulur, bellek maliyeti yok denecek kadar az.
+// Closed tabs (reopened with Ctrl+Shift+T). Only the URL is kept, so memory cost is negligible.
 let closedTabs = [];
 function rememberClosed(tab, index) {
   let u = tab.url;
@@ -1215,7 +1221,7 @@ function togglePin(id) {
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
   const firstFree = tabs.filter((x) => x.pinned).length;
-  tabs.splice(firstFree, 0, t);    // sabitlenen: sabitlerin sonuna; cozulen: sabit olmayanlarin basina
+  tabs.splice(firstFree, 0, t);    // pinned: to the end of pinned tabs; unpinned: to the start of unpinned ones
   pushState();
 }
 function toggleMute(id) {
@@ -1225,26 +1231,26 @@ function toggleMute(id) {
   if (t.view) t.view.webContents.setAudioMuted(t.muted);
   pushState();
 }
-// ---------------------------------------------------------------- Ses yukseltme (sekme basina)
-// Chrome'daki Volume Booster uzantilarinin yaptigini yapar, tabCapture gerekmez: volume.js sayfadaki
-// video/ses ogelerini bir kazanc dugumunden gecirir. Ana karede ayrik dunyada (site karisamaz), gomulu
-// karelerde (iframe oynaticilar) kare icinde calisir. Deger sekmede tutulur, uyuyan sekmede de korunur.
-const VOLUME_STEPS = [25, 50, 75, 100, 150, 200, 300, 400, 600];   // sekme sag tik menusu
+// ---------------------------------------------------------------- Volume boost (per tab)
+// Does what Volume Booster extensions do in Chrome, without tabCapture: volume.js routes the page's
+// video/audio elements through a gain node. Runs in an isolated world in the main frame (site can't interfere),
+// and inside the frame for embedded frames (iframe players). The value is kept per tab, also while asleep.
+const VOLUME_STEPS = [25, 50, 75, 100, 150, 200, 300, 400, 600];   // tab context menu
 const VOLUME_MAX = 600;
 let VOLUME_JS = null;
 function applyVolume(wc, frame, pct) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
-  if (!VOLUME_JS) VOLUME_JS = fs.readFileSync(path.join(__dirname, 'volume.js'), 'utf8');   // ilk kullanimda okunur
-  const code = `{ const GAIN = ${pct / 100};\n${VOLUME_JS}\n}`;   // blok: tekrar calisinca "zaten tanimli" hatasi olmasin
+  if (!VOLUME_JS) VOLUME_JS = fs.readFileSync(path.join(__dirname, 'volume.js'), 'utf8');   // read on first use
+  const code = `{ const GAIN = ${pct / 100};\n${VOLUME_JS}\n}`;   // block scope: avoids "already defined" errors when run again
   if (frame) { frame.executeJavaScript(code, true).catch(() => {}); return; }
   wc.executeJavaScriptInIsolatedWorld(1013, [{ code }], true).catch(() => {});
   for (const f of wc.mainFrame ? wc.mainFrame.framesInSubtree : []) {
     if (f !== wc.mainFrame && /^https?:/i.test(f.url)) f.executeJavaScript(code, true).catch(() => {});
   }
 }
-// ---------------------------------------------------------------- Resim buyutme (yerlesik, Imagus benzeri)
-// Ayar acikken her sayfaya ayrik dunyada (1014) hoverzoom.js eklenir; site kodu goremez ve bozamaz.
-// Kapatilinca acik sayfalardan da kaldirilir. Ek surec, uzanti veya arka plan isi yok.
+// ---------------------------------------------------------------- Image zoom (built-in, Imagus-like)
+// When enabled, hoverzoom.js is injected into every page in an isolated world (1014); site code can't see or break it.
+// When disabled it is removed from open pages too. No extra process, extension or background work.
 let ZOOM_JS = null;
 function applyHoverZoom(wc, on = settings.hoverZoom) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
@@ -1301,7 +1307,7 @@ function sleepIdleTabs(force = false) {
   });
 }
 
-// ---------------------------------------------------------------- Yer isaretleri
+// ---------------------------------------------------------------- Bookmarks
 function isBookmarked(url) { return !!url && settings.bookmarks.some((b) => b.url === url); }
 function toggleBookmark() {
   const t = activeTab();
@@ -1314,21 +1320,21 @@ function toggleBookmark() {
 }
 function toggleBookmarksBar() { settings.bookmarksBar = !settings.bookmarksBar; saveSettings(); forEachWin(() => { layout(); pushState(); }); }
 
-// ---------------------------------------------------------------- Yerlesim ve UI durumu
+// ---------------------------------------------------------------- Layout and UI state
 const vertical = () => !!settings.verticalTabs && !htmlFullscreen;
 function layout() {
   if (!win || !ui) return;
   const { width, height } = win.getContentBounds();
   const t = activeTab();
   if (vertical()) {
-    // Dikey: arayuz tum pencereyi kaplar ve sayfanin ARKASINDA durur (ust cubuklar + soldaki kenar cubugu gorunur).
-    // Saklanma modunda sayfa tam genislikte; kenar cubugu acilinca arayuz one alinir, sayfanin ustune kayar.
+    // Vertical: the UI covers the whole window and sits BEHIND the page (top bars + left sidebar stay visible).
+    // In auto-hide mode the page is full width; when the sidebar opens the UI is raised and slides over the page.
     const top = TOOLBAR + (settings.bookmarksBar ? BOOKMARKS : 0) + (findOpen ? FINDBAR : 0);
     const sw = settings.verticalAutoHide ? 0 : sideWidth(width);
     ui.setBounds({ x: 0, y: 0, width, height });
     if (t && t.view) {
       t.view.setBounds({ x: sw, y: top, width: Math.max(0, width - sw), height: Math.max(0, height - top) });
-      if (!overlayOpen && W && W.uiAbove) { win.contentView.addChildView(t.view); W.uiAbove = false; }   // sayfa tekrar one
+      if (!overlayOpen && W && W.uiAbove) { win.contentView.addChildView(t.view); W.uiAbove = false; }   // page back on top
     }
     return;
   }
@@ -1336,10 +1342,10 @@ function layout() {
   ui.setBounds({ x: 0, y: 0, width, height: overlayOpen ? height : h });
   if (t && t.view) t.view.setBounds({ x: 0, y: h, width, height: Math.max(0, height - h) });
 }
-// Arayuzu en uste al (menuler, balonlar, acilan kenar cubugu)
+// Bring the UI to the top (menus, bubbles, revealed sidebar)
 function raiseUi() { win.contentView.addChildView(ui); if (W) W.uiAbove = true; }
 
-// ---------- Dikey sekmeler
+// ---------- Vertical tabs
 function setVerticalTabs(on) {
   settings.verticalTabs = !!on;
   saveSettings();
@@ -1352,7 +1358,7 @@ function toggleAutoHide() {
   saveSettings();
   forEachWin(() => { if (overlayOpen && overlayKind === 'side') closeOverlay(false); layout(); pushState(); });
 }
-// Saklanma modunda fare sol kenara gelince kenar cubugu acilir (odak sayfada kalir)
+// In auto-hide mode the sidebar opens when the mouse hits the left edge (focus stays on the page)
 function openSide() {
   if (!win || !ui || !vertical() || !settings.verticalAutoHide || overlayOpen) return;
   overlayOpen = true;
@@ -1367,7 +1373,7 @@ function send(ch, data) { if (ui && !ui.webContents.isDestroyed()) ui.webContent
 let pushTimer = null;
 function schedulePush() {
   if (pushTimer || !W) return;
-  const w = W;   // zamanlayici sonra calisir; o pencerenin durumunu gondermeli
+  const w = W;   // the timer runs later; it must send that window's state
   pushTimer = setTimeout(() => inWin(w, () => { pushTimer = null; pushState(); }), 150);
 }
 
@@ -1438,7 +1444,7 @@ function closeFind() {
   withActive((wc) => wc.focus());
 }
 
-// Sadece yerel gecmis ve yer isaretlerinden. Yazilanlar arama motoruna tus tus GONDERILMEZ.
+// From local history and bookmarks only. Keystrokes are NOT sent to the search engine.
 const SEARCH_PAGE = /\/search\?|[?&](q|text|query)=/i;
 function omniSuggest(text) {
   const q = String(text || '').trim().toLocaleLowerCase('tr');
@@ -1449,7 +1455,7 @@ function omniSuggest(text) {
   const consider = (url, title, kind, t, favicon) => {
     if (!/^https?:/i.test(url) || (kind === 'hist' && SEARCH_PAGE.test(url))) return;
     const prev = found.get(url);
-    if (prev) { prev.score += 6; if (!prev.favicon && favicon) prev.favicon = favicon; return; }   // sik ziyaret edilen yukselir
+    if (prev) { prev.score += 6; if (!prev.favicon && favicon) prev.favicon = favicon; return; }   // frequently visited ranks higher
     const hp = url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
     const ti = String(title || '').toLocaleLowerCase('tr');
     if (!words.every((w) => hp.includes(w) || ti.includes(w))) return;
@@ -1463,7 +1469,7 @@ function omniSuggest(text) {
   for (const h of history) consider(h.url, h.title, 'hist', h.t, h.favicon);
   const items = [...found.values()].sort((a, b) => b.score - a.score).slice(0, 6)
     .map(({ url, title, kind, favicon }) => ({ url, title, kind, favicon: favicon && /^(https?|data):/.test(favicon) ? favicon : null }));
-  // Chrome gibi satir ici tamamlama: yazilan, en iyi sonucun alan adinin basiysa kalani doldurulur
+  // Inline completion like Chrome: if the input is a prefix of the top result's domain, the rest is filled in
   let inline = '';
   if (!/\s/.test(q)) {
     for (const it of items) {
@@ -1487,7 +1493,7 @@ function openUrl(url, where) {
     const t = activeTab();
     if (!t) { newTab(url); return; }
     t.url = toUrl(url);
-    if (!t.view) { activateTab(t.id); return; }   // uyuyan sekme: activateTab sayfayi olusturup t.url'ye gider
+    if (!t.view) { activateTab(t.id); return; }   // sleeping tab: activateTab creates the view and loads t.url
     go(t.view.webContents, t.url);
     t.view.webContents.focus();
   }
@@ -1508,7 +1514,7 @@ ipcMain.on('ui', (e, cmd, arg) => {
     case 'prompt-answer': answerPrompt(arg); break;
     case 'side-reveal': openSide(); break;
     case 'side-hide': if (overlayKind === 'side') closeOverlay(false); break;
-    case 'side-drag-start':   // genislik surukleme: arayuz one alinir ki fare sayfanin ustune gecse de olaylari alsin
+    case 'side-drag-start':   // width drag: UI is raised so it keeps getting events even when the mouse moves over the page
       if (vertical() && !settings.verticalAutoHide && !overlayOpen) { overlayOpen = true; overlayKind = 'sidedrag'; raiseUi(); layout(); }
       break;
     case 'side-width': {
@@ -1557,7 +1563,7 @@ ipcMain.on('ui', (e, cmd, arg) => {
   }
 });
 
-// ---------------------------------------------------------------- Kisayollar
+// ---------------------------------------------------------------- Shortcuts
 function handleShortcut(input) {
   if (input.type && input.type !== 'keyDown') return false;
   const ctrl = isMac ? input.meta : input.control;
@@ -1566,8 +1572,8 @@ function handleShortcut(input) {
   if (k === 'escape' && overlayOpen) { closeOverlay(); return true; }
   if (k === 'escape' && findOpen) { closeFind(); return true; }
   if (ctrl && input.shift && k === 't') { reopenClosed(); return true; }
-  if (ctrl && input.shift && k === 'n') { newWindow(true); return true; }               // yeni gizli pencere
-  if (ctrl && k === 'n') { newWindow(false); return true; }                              // yeni pencere
+  if (ctrl && input.shift && k === 'n') { newWindow(true); return true; }               // new incognito window
+  if (ctrl && k === 'n') { newWindow(false); return true; }                              // new window
   if (ctrl && k === 't') { newTab(''); return true; }
   if (ctrl && input.shift && (k === 'w' || k === 'q')) { if (win) win.close(); return true; }
   if ((ctrl && k === 'w') || (ctrl && k === 'f4')) { if (activeId) closeTab(activeId); return true; }
@@ -1581,7 +1587,7 @@ function handleShortcut(input) {
   if ((input.alt && (k === 'f' || k === 'e')) || k === 'f10') { send('open-menu'); return true; }
   if (ctrl && input.shift && k === 'delete') { clearData(); return true; }
   if (ctrl && !input.shift && k === 'u') { withActive((wc) => newTab('view-source:' + wc.getURL(), false, activeId)); return true; }
-  // Ctrl+S: dikey sekmelerde saklanma modu ac/kapa (kullanici istedi); sayfayi kaydetmek Ctrl+Shift+S
+  // Ctrl+S: toggle auto-hide mode with vertical tabs (user request); save page is Ctrl+Shift+S
   if (ctrl && !input.shift && k === 's') { if (settings.verticalTabs) toggleAutoHide(); else withActive((wc) => saveAs(wc)); return true; }
   if (ctrl && input.shift && k === 's') { withActive((wc) => saveAs(wc)); return true; }
   if (ctrl && !input.shift && k === 'o') { openFileDialog(); return true; }
@@ -1619,8 +1625,8 @@ function handleShortcut(input) {
   return false;
 }
 
-// ---------------------------------------------------------------- Menuler
-// Menu tiklamasi sonradan gelir; o anda baska pencere islenmis olabilir, bu yuzden menunun penceresine donulur
+// ---------------------------------------------------------------- Menus
+// Menu clicks arrive later; another window may be current by then, so we switch back to the menu's window
 function bindMenu(items) {
   const w = W;
   const wrap = (list) => list.map((it) => ({
@@ -1646,7 +1652,7 @@ function setSetting(key, value, needsRestart) {
   }).then((r) => { if (r.response === 0) { app.relaunch(); app.quit(); } });
 }
 
-// ---------------------------------------------------------------- Chrome tarzi menu (ayri surec acmadan, arayuz katmaninda cizilir)
+// ---------------------------------------------------------------- Chrome-style menu (drawn in the UI layer, no extra process)
 function openOverlay(arg) {
   if (!win || !ui || overlayKind === 'prompt') return;
   if (chooser) finishChooser(null);
@@ -1662,9 +1668,9 @@ function closeOverlay(refocus = true) {
   overlayOpen = false;
   const kind = overlayKind;
   overlayKind = null;
-  if (kind === 'chooser' && chooser) finishChooser(null);   // disari tiklandi: iptal
+  if (kind === 'chooser' && chooser) finishChooser(null);   // clicked outside: cancel
   if (kind === 'side') {
-    // Acilan kenar cubugu acildigi gibi sola kayarak kapanir; arayuz animasyon bitene kadar onde kalir
+    // The revealed sidebar slides back left as it came; the UI stays on top until the animation ends
     send('side-reveal', false);
     const w = W;
     setTimeout(() => inWin(w, () => layout()), 190);
@@ -1673,7 +1679,7 @@ function closeOverlay(refocus = true) {
   layout();
   send('menu-closed');
   if (kind === 'sidedrag') send('side-reveal', false);
-  if (kind === 'prompt') {   // disari tiklandi / Esc: bu seferlik reddet
+  if (kind === 'prompt') {   // clicked outside / Esc: deny this once
     const p = prompts.find((x) => x.w === W && x.shown);
     if (p) { settlePrompt(p, 'dismiss'); return; }
   }
@@ -1756,7 +1762,7 @@ function menuAction(id, arg) {
   }
 }
 
-// ---------------------------------------------------------------- Gorev yoneticisi (hangi sekme ne kadar RAM kullaniyor)
+// ---------------------------------------------------------------- Task manager (how much RAM each tab uses)
 const MB = (kb) => Math.round(kb / 1024);
 function showTaskManager() {
   const metrics = app.getAppMetrics();
@@ -1789,10 +1795,10 @@ function showTaskManager() {
   }).then((r) => { if (r.response === 0) sleepIdleTabs(true); });
 }
 
-// ---------------------------------------------------------------- Uzantilar
+// ---------------------------------------------------------------- Extensions
 const extApi = () => (mainSes && mainSes.extensions && typeof mainSes.extensions.getAllExtensions === 'function' ? mainSes.extensions : mainSes);
 
-// Uzanti bilgisi (ad, aciklama, simge). Dosyadan okunur; surum basina onbellekte tutulur.
+// Extension info (name, description, icon). Read from files; cached per version.
 const extInfoCache = new Map();
 function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
 function extInfo(id, dir, manifest) {
@@ -1800,7 +1806,7 @@ function extInfo(id, dir, manifest) {
   if (!m) return null;
   const key = dir + '|' + m.version;
   if (extInfoCache.has(key)) return extInfoCache.get(key);
-  // __MSG_ad__ bicimindeki yerellestirilmis metinler: Turkce, varsayilan dil, Ingilizce sirasiyla
+  // Localized __MSG_name__ strings: Turkish, then default locale, then English (in priority order)
   let msgs = null;
   const msg = (v) => {
     if (typeof v !== 'string' || !/^__MSG_\w+__$/.test(v)) return v || '';
@@ -1813,7 +1819,7 @@ function extInfo(id, dir, manifest) {
   };
   let icon = null;
   const icons = m.icons || {};
-  // 48 piksele en yakin buyuk simge, yoksa en buyugu
+  // Smallest icon of at least 48 px, otherwise the largest
   const size = Object.keys(icons).map(Number).filter((n) => n > 0).sort((x, y) => (y >= 48) - (x >= 48) || (x >= 48 ? x - y : y - x))[0];
   if (size) {
     try {
@@ -1835,7 +1841,7 @@ function extInfo(id, dir, manifest) {
 const storeExtDir = () => path.join(app.getPath('userData'), 'Extensions');
 const isStoreDir = (p) => !!p && path.resolve(p).toLowerCase().startsWith(path.resolve(storeExtDir()).toLowerCase() + path.sep);
 const isDisabledPath = (p) => settings.disabledExtensions.some((d) => path.resolve(d.path) === path.resolve(p));
-// Yuklu ve kapatilmis tum uzantilar (kapali olanlar yuklenmedigi icin bilgileri dosyadan okunur)
+// All loaded and disabled extensions (disabled ones are not loaded, so their info is read from files)
 function listExtensions() {
   if (!mainSes) return [];
   const out = [];
@@ -1859,7 +1865,7 @@ async function loadExt(dir) {
   }
   return e;
 }
-// Web Magazasi'ndan kurulanlar: Extensions/<kimlik>/<surum>/ klasorlerinden en yenisi; kapatilanlar atlanir
+// Installed from the Web Store: newest of the Extensions/<id>/<version>/ folders; disabled ones are skipped
 async function loadStoreExtensions() {
   let ids = [];
   try { ids = fs.readdirSync(storeExtDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return; }
@@ -1870,11 +1876,11 @@ async function loadStoreExtensions() {
     try { vers = fs.readdirSync(base).filter((v) => fs.existsSync(path.join(base, v, 'manifest.json'))); } catch {}
     vers.sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
     if (!vers.length) continue;
-    try { if (!extApi().getExtension(id)) await loadExt(path.join(base, vers[vers.length - 1])); } catch (e) { console.warn('Uzanti yuklenemedi:', id, e.message); }
+    try { if (!extApi().getExtension(id)) await loadExt(path.join(base, vers[vers.length - 1])); } catch (e) { console.warn('Could not load extension:', id, e.message); }
   }
 }
 async function setExtensionEnabled(id, on) {
-  if (id && id === uboId) return;   // yerlesik
+  if (id && id === uboId) return;   // built-in
   if (on) {
     const d = settings.disabledExtensions.find((x) => x.id === id);
     if (!d) return;
@@ -1900,24 +1906,24 @@ function extensionsChanged() { forEachWin(() => pushState()); notifyPages('exten
 async function setupExtensions() {
   const ses = mainSes;
   if (ECE) {
-    // Electron'da olmayan chrome.userScripts (Imagus Reborn gibi uzantilar icin), bkz. user-scripts.js.
-    // Uzanti kutuphanesinden ONCE kurulmali: kutuphane chrome nesnesini kendi API'lerini ekledikten sonra donduruyor.
+    // chrome.userScripts, missing in Electron (for extensions like Imagus Reborn), see user-scripts.js.
+    // Must be set up BEFORE the extension library: the library freezes the chrome object after adding its own APIs.
     try { require('./user-scripts').setupUserScripts({ ses, storeFile: path.join(app.getPath('userData'), 'kullanici-betikleri.json') }); }
-    catch (e) { console.warn('Kullanici betigi destegi baslatilamadi:', e.message); }
+    catch (e) { console.warn('Could not start user script support:', e.message); }
     try {
       extensions = new ECE({
         license: 'GPL-3.0',
         session: ses,
         createTab: async (details) => {
-          // Bir uzanti kendi sayfasini (ornegin ayarlarini) zaten acik bir sekmede tekrar acmak isterse yeni sekme
-          // acma, mevcut sekmeye gec. Yoksa her acilista ayni sayfa birikiyor (oturum geri yukleme + uzanti).
+          // If an extension wants to reopen its own page (e.g. its options) that is already open in a tab, don't open
+          // a new tab, switch to the existing one. Otherwise the same page piles up on every start (session restore + extension).
           const u = details.url || '';
           const same = /^chrome-extension:/i.test(u) && allTabs().find((x) => x.url.split('#')[0] === u.split('#')[0]);
           useWin(same ? same.w : lastWin(true));
           if (same) {
             if (details.active !== false || !same.view) activateTab(same.id);
             if (same.view) {
-              // Geri yuklenen sekme uzanti hazir olmadan acilmis ve hata vermis olabilir: yeniden yukle
+              // The restored tab may have opened before the extension was ready and errored: reload it
               same.url = u; go(same.view.webContents, u);
               return [same.view.webContents, win];
             }
@@ -1926,7 +1932,7 @@ async function setupExtensions() {
           return [t.view.webContents, win];
         },
         selectTab: (wc) => { if (!wc || wc.isDestroyed()) return; const t = byWcId.get(wc.id); if (t) { useWin(t.w); activateTab(t.id); } },
-        // Kutuphane, kapanan/uyutulan sekmeler icin de bunu cagirir; sadece uzantinin istedigi canli sekmeleri kapat
+        // The library also calls this for closed/slept tabs; only close live tabs the extension asked for
         removeTab: (wc) => { if (!wc || wc.isDestroyed()) return; const t = byWcId.get(wc.id); if (t && t.w && t.w.win) { useWin(t.w); closeTab(t.id); } },
         createWindow: async (details) => { useWin(lastWin(true)); [].concat(details.url || '').forEach((u) => newTab(u)); return win; },
         removeWindow: () => {}
@@ -1935,7 +1941,7 @@ async function setupExtensions() {
       for (const t of allTabs()) if (t.view && !t.w.incognito) { try { extensions.addTab(t.view.webContents, t.w.win); } catch {} }
       forEachWin((w) => { if (!w.incognito && activeTab() && activeTab().view) { try { extensions.selectTab(activeTab().view.webContents); } catch {} } });
     } catch (e) {
-      console.warn('Uzanti destegi baslatilamadi:', e.message);
+      console.warn('Could not start extension support:', e.message);
       extensions = null;
     }
   }
@@ -1944,8 +1950,8 @@ async function setupExtensions() {
     try {
       await CWS.installChromeWebStore({
         session: ses,
-        loadExtensions: false,     // kendimiz yukluyoruz: kapatilan uzantilar atlanir
-        // Chrome gibi: adres cubugunun altindan acilan balonda, uzantinin neler yapabilecegi listelenir
+        loadExtensions: false,     // we load them ourselves: disabled extensions are skipped
+        // Like Chrome: a bubble below the address bar lists what the extension can do
         beforeInstall: async (details) => {
           const ow = details.frame ? winOfWc(wcOfFrame(details.frame)) : lastWin(true);
           if (!ow) return { action: 'deny' };
@@ -1961,12 +1967,12 @@ async function setupExtensions() {
         afterInstall: () => extensionsChanged(),
         afterUninstall: () => extensionsChanged()
       });
-    } catch (e) { console.warn('Web Magazasi destegi baslatilamadi:', e.message); }
+    } catch (e) { console.warn('Could not start Web Store support:', e.message); }
   }
   await loadStoreExtensions();
   for (const dir of settings.unpackedExtensions) {
     if (isDisabledPath(dir)) continue;
-    try { await loadExt(dir); } catch (e) { console.warn('Uzanti yuklenemedi:', dir, e.message); }
+    try { await loadExt(dir); } catch (e) { console.warn('Could not load extension:', dir, e.message); }
   }
   pushState();
 }
@@ -1985,7 +1991,7 @@ async function loadUnpackedDialog() {
 }
 
 async function removeExtension(id) {
-  if (id && id === uboId) return;   // yerlesik
+  if (id && id === uboId) return;   // built-in
   const e = listExtensions().find((x) => x.id === id);
   if (!e) return;
   const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Kaldır', 'İptal'], defaultId: 1, cancelId: 1, message: `"${e.name}" kaldırılsın mı?`, detail: 'Uzantının dosyaları ve ayarları silinir.' });
@@ -2034,7 +2040,7 @@ function clearHistoryAndDownloads() {
   pushState(); notifyPages('history'); notifyPages('downloads');
 }
 
-// Ctrl+Shift+Delete ve diger girisler: ayarlar sayfasindaki "Gezinti verilerini temizle" penceresi (normal pencerede)
+// Ctrl+Shift+Delete and other entry points: the "Clear browsing data" dialog on the settings page (in a normal window)
 function clearData() { openSettingsAt('temizle'); }
 function openSettingsAt(hash) {
   if (W && W.incognito) { const n = lastWin(true); if (n) { useWin(n); n.win.focus(); } else createWindow(); }
@@ -2047,13 +2053,13 @@ function openSettingsAt(hash) {
   } else newTab(SETTINGS_URL + '#' + hash);
 }
 
-// ---------------------------------------------------------------- Korunan Siteler + secici temizlik (site-data.js)
+// ---------------------------------------------------------------- Protected Sites + selective cleanup (site-data.js)
 const siteData = createSiteData({
   getSession: () => mainSes,
   getProtected: () => (Array.isArray(settings.protectedSites) ? settings.protectedSites.slice() : []),
   setProtected: (list) => { settings.protectedSites = list; saveSettings(true); notifyPages('settings'); },
   openTabUrls: () => allTabs().filter((t) => !t.w || !t.w.incognito).map((t) => t.url),
-  // CDP komutlari icin gizli, pencereye bagli olmayan gecici gorunum (ana oturum)
+  // Hidden temporary view, not attached to a window, for CDP commands (main session)
   makeDebugTarget: async () => {
     const v = new WebContentsView({ webPreferences: { session: mainSes, sandbox: true, contextIsolation: true } });
     await v.webContents.loadURL('about:blank').catch(() => {});
@@ -2069,7 +2075,7 @@ async function runClear(opts) {
   settings.clearPrefs = o; saveSettings();
   const cutoff = o.range === 'all' ? 0 : Date.now() - RANGE_MS[o.range];
   const out = { history: 0, downloads: 0, cache: null, site: null, notes: [] };
-  // Gecmis ve indirme listesi: korumadan bagimsiz, zaman araligina gore
+  // History and download list: independent of protection, by time range
   if (o.history) {
     const n = history.length;
     history = history.filter((h) => h.t < cutoff);
@@ -2085,7 +2091,7 @@ async function runClear(opts) {
     out.site = await siteData.clear({ cookies: true, siteData: true, protect: o.protect, range: o.range });
     notifyPages('settings');
   }
-  // HTTP onbellegi site bazinda guvenle ayrilamiyor (anahtari ust site + kaynak adresi): sadece "tumu", acik secimle
+  // The HTTP cache can't be safely split per site (key is top-level site + resource URL): only "all", by explicit choice
   if (o.cache) {
     if (o.range !== 'all') out.notes.push('Önbellek temizlenmedi: motor önbellekte zaman aralığını desteklemiyor. Önbelleği temizlemek için "Tüm zamanlar"ı seçin.');
     else { try { await mainSes.clearCache(); out.cache = 'requested'; } catch (e) { out.notes.push('Önbellek temizlenemedi: ' + e.message); } }
@@ -2094,7 +2100,7 @@ async function runClear(opts) {
   return out;
 }
 
-// Adres cubugundaki site simgesi: site bilgisi menusu
+// Site icon in the address bar: site info menu
 function showSiteMenu(pos) {
   const t = activeTab();
   if (!t || W.incognito || !/^https?:/i.test(t.url)) return;
@@ -2117,7 +2123,7 @@ function showSiteMenu(pos) {
   ], pos);
 }
 
-// Thorium: yenile dugmesine sag tik menusu
+// Thorium: right-click menu on the reload button
 function showReloadMenu(pos) {
   popAt([
     { label: 'Normal yeniden yükleme', ...hint('Ctrl+R'), click: () => withActive((wc) => wc.reload()) },
@@ -2136,9 +2142,16 @@ function showShieldMenu(pos) {
   ], pos);
 }
 
-// ---------------------------------------------------------------- Yer isareti klasorleri (ice aktarilanlar) ve aktarma
-// Veri modeli duz liste kaliyor: ice aktarilan yer isaretinde path = ['Google Chrome', 'Is', ...]. Cubukta path[0] tek
-// klasor dugmesi olarak gorunur, tiklayinca alt klasorleriyle yerel menu acilir.
+// ---------------------------------------------------------------- Bookmark folders (imported) and import
+// The data model stays a flat list: an imported bookmark has path = ['Google Chrome', 'Is', ...]. On the bar path[0]
+// shows as a single folder button; clicking it opens a native menu with its subfolders.
+// Scanning other browsers' files (and copying Firefox's database) is cached for a minute: the settings page
+// reloads its data on every settings change and must not rescan each time.
+let bmSrcCache = null;
+function bmSources() {
+  if (!bmSrcCache || Date.now() - bmSrcCache.t > 60e3) bmSrcCache = { t: Date.now(), list: bookmarkImport.listSources() };
+  return bmSrcCache.list;
+}
 function barItems() {
   const out = [], seen = new Set();
   settings.bookmarks.forEach((b, i) => {
@@ -2193,7 +2206,7 @@ function removeBookmarkGroup(g) {
   saveSettings(); forEachWin(() => pushState()); notifyPages('settings');
   return { removed: n - settings.bookmarks.length };
 }
-// Ayni adres zaten varsa eklenmez; klasor adi tarayici adi (ayni ad varsa yeni gelenler ona eklenir)
+// Skipped if the URL already exists; folder name is the browser name (if it exists, new items are added to it)
 function addImported(items, group) {
   if (!Array.isArray(items)) return { error: 'Yer işaretleri okunamadı.' };
   const have = new Set(settings.bookmarks.map((b) => b.url));
@@ -2330,8 +2343,8 @@ function showContextMenu(wc, p) {
   Menu.buildFromTemplate(bindMenu(items)).popup({ window: win });
 }
 
-// ---------------------------------------------------------------- Video: resim icinde resim
-// Tiklanan noktadaki videoyu; yoksa once oynayan, sonra en buyuk videoyu bulan sayfa ici ifade.
+// ---------------------------------------------------------------- Video: picture-in-picture
+// In-page expression that finds the video at the clicked point; otherwise a playing one, then the largest.
 function findMediaJs(x, y, audio = false) {
   const tags = audio ? "['VIDEO', 'AUDIO']" : "['VIDEO']";
   const hit = Number.isFinite(x) && Number.isFinite(y)
@@ -2349,7 +2362,7 @@ async function pictureInPicture(wc, frame, x, y) {
     await v.requestPictureInPicture();
     return 'acik';
   })()`;
-  // Once tiklanan kare, sonra sayfadaki tum kareler (gomulu oynaticilar icin)
+  // First the clicked frame, then all frames on the page (for embedded players)
   const frames = [frame, ...(wc.mainFrame ? wc.mainFrame.framesInSubtree : [])].filter(Boolean);
   for (const f of frames) {
     try { if (await f.executeJavaScript(code, true)) return; } catch {}
@@ -2360,13 +2373,13 @@ function mediaToggle(wc, frame, x, y, what) {
   (frame || wc.mainFrame).executeJavaScript(code, true).catch(() => {});
 }
 
-// ---------------------------------------------------------------- Okuma modu
-// Sayfanin ana yazisini sade bir katmanda gosterir. Ayri surec veya sayfa acmaz; ayrik dunyada calisir,
-// boylece sitenin kendi betikleri ve guvenlik kurallari (CSP) karismaz. Tekrar cagrilinca kapanir.
+// ---------------------------------------------------------------- Reader mode
+// Shows the page's main text in a clean overlay. No extra process or page; runs in an isolated world,
+// so the site's own scripts and security rules (CSP) don't interfere. Calling it again closes it.
 let READER_JS = null;
 function toggleReader(wc) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
-  if (!READER_JS) READER_JS = localizeSrc(fs.readFileSync(path.join(__dirname, 'reader.js'), 'utf8'));   // ilk kullanimda okunur
+  if (!READER_JS) READER_JS = localizeSrc(fs.readFileSync(path.join(__dirname, 'reader.js'), 'utf8'));   // read on first use
   wc.executeJavaScriptInIsolatedWorld(1012, [{ code: READER_JS }], true).then((r) => {
     if (r === 'bulunamadi') dialog.showMessageBox(win, { message: 'Bu sayfada okuma modunda gösterilecek bir yazı bulunamadı.' });
   }).catch(() => {});
@@ -2377,9 +2390,9 @@ async function saveAs(wc) {
   if (!r.canceled && r.filePath) wc.savePage(r.filePath, 'HTMLComplete').catch(() => {});
 }
 
-// ---------------------------------------------------------------- Pencere
-// ---------------------------------------------------------------- Temalar
-// mode: sistem/acik/koyu tabani. Renkli temalar arac cubugu, sekme seridi ve yeni sekme sayfasini boyar.
+// ---------------------------------------------------------------- Window
+// ---------------------------------------------------------------- Themes
+// mode: system/light/dark base. Colored themes paint the toolbar, tab strip and new tab page.
 const THEMES = {
   sistem:  { name: 'Sistem', mode: 'system' },
   acik:    { name: 'Açık', mode: 'light' },
@@ -2394,7 +2407,7 @@ const THEMES = {
   murdum:  { name: 'Mürdüm', mode: 'dark', frame: '#1d1424', toolbar: '#30223b', omni: '#1d1424', accent: '#d7b8f3', page: '#21172a' }
 };
 const currentTheme = () => THEMES[settings.theme] || THEMES.sistem;
-// Tam siyah (pitch black): koyu tema ya da sistem koyu iken, renkli temalar haric
+// Pitch black: with the dark theme or a dark system theme, except colored themes
 const PITCH = { frame: '#000000', toolbar: '#000000', omni: '#161616', accent: '#a8c7fa', page: '#000000', menu: '#121212', mode: 'dark' };
 function effectiveTheme() {
   const t = currentTheme();
@@ -2405,17 +2418,17 @@ function effectiveTheme() {
 function themeColors() {
   const t = effectiveTheme();
   const dark = nativeTheme.shouldUseDarkColors;
-  // toolbar: dikey sekmelerde pencere dugmeleri arac cubugunun ustunde durur, rengi ona uymali (ui.html --toolbar ile ayni)
+  // toolbar: with vertical tabs the window buttons sit on the toolbar, so the color must match it (same as ui.html --toolbar)
   return { frame: t.frame || (dark ? '#1f1f1f' : '#dfe3e7'), toolbar: t.toolbar || (dark ? '#3c3c3c' : '#ffffff'), symbol: dark ? '#e3e3e3' : '#1f1f1f', dark };
 }
 
 function applyTheme() {
   const t = currentTheme();
-  nativeTheme.themeSource = t.mode;              // sayfalarin acik/koyu tercihi de buna uyar
+  nativeTheme.themeSource = t.mode;              // pages' light/dark preference follows this too
   forEachWin(() => { paintFrame(); pushState(); });
   broadcastPages();
 }
-// Pencere cercevesi ve Windows dugmelerinin rengi
+// Color of the window frame and Windows caption buttons
 function paintFrame() {
   if (!win) return;
   const c = W && W.incognito ? { frame: INCOGNITO_THEME.frame, toolbar: INCOGNITO_THEME.toolbar, symbol: '#e3e3e3' } : themeColors();
@@ -2423,14 +2436,14 @@ function paintFrame() {
   if (!isMac && win.setTitleBarOverlay) { try { win.setTitleBarOverlay({ color: settings.verticalTabs ? c.toolbar : c.frame, symbolColor: c.symbol, height: settings.verticalTabs ? TOOLBAR : TAB_STRIP }); } catch {} }
 }
 
-// Gizli pencere her zaman koyu (Chrome gibi)
+// Incognito windows are always dark (like Chrome)
 const INCOGNITO_THEME = { frame: '#202124', toolbar: '#35363a', omni: '#202124', accent: '#8ab4f8', page: '#202124', mode: 'dark' };
 function themeVars() {
   const t = effectiveTheme();
   return t.frame ? { frame: t.frame, toolbar: t.toolbar, omni: t.omni, accent: t.accent, page: t.page, mode: t.mode, ...(t.menu ? { menu: t.menu } : {}) } : null;
 }
 
-// ---------------------------------------------------------------- Yerel sayfalar (yeni sekme + karsilama)
+// ---------------------------------------------------------------- Local pages (new tab + welcome)
 const pageData = () => ({
   incognito: !!(W && W.incognito),
   newtabTitle: settings.newtabTitle,
@@ -2449,7 +2462,7 @@ function broadcastPages() {
   }
 }
 
-// Gecmis/indirilenler sayfasi acik ise degisikligi haber ver (seyrek)
+// Notify the history/downloads page of changes if it is open (throttled)
 const notifyTimers = {};
 function notifyPages(kind) {
   if (notifyTimers[kind]) return;
@@ -2555,7 +2568,7 @@ function setNewtabTitle(v) {
   saveSettings();
   broadcastPages();
 }
-// Dil degisince arayuz ve Mondium sayfalari yeniden yuklenir (ceviri sayfa acilirken uygulanir)
+// On language change the UI and Mondium pages are reloaded (translation is applied when a page opens)
 function setLanguage(v) {
   if (settings.language === v) return;
   settings.language = v; uiLangCache = null; saveSettings(true);
@@ -2577,7 +2590,7 @@ function settingsSet(key, value) {
     case 'tabAudio':
       if (typeof value !== 'boolean') return false;
       settings.tabAudio = value; saveSettings();
-      // Kapatilinca sessize alinmis sekmeler de normale doner (sessize alma tamamen devre disi)
+      // When turned off, muted tabs are unmuted too (muting is fully disabled)
       if (!value) for (const t of allTabs()) { if (t.muted) { t.muted = false; if (t.view) t.view.webContents.setAudioMuted(false); } }
       forEachWin(() => pushState());
       return true;
@@ -2621,9 +2634,9 @@ ipcMain.handle('page', async (e, cmd, arg) => {
       case 'clear-prefs': return { prefs: settings.clearPrefs, protectedCount: (settings.protectedSites || []).length };
       case 'clear-run': return runClear(arg || {});
       case 'clear-status': return siteData.status();
-      case 'bm-sources': return { sources: bookmarkImport.listSources(), groups: bookmarkGroups(), total: settings.bookmarks.length };
+      case 'bm-sources': return { sources: bmSources(), groups: bookmarkGroups(), total: settings.bookmarks.length };
       case 'bm-import': {
-        const src = bookmarkImport.listSources().find((x) => x.id === String(arg || ''));
+        const src = bmSources().find((x) => x.id === String(arg || ''));
         if (!src) return { error: 'Kaynak bulunamadı.' };
         const items = bookmarkImport.readSourceById(src.id);
         if (!items) return { error: `${src.browser} yer işaretleri okunamadı.` };
@@ -2720,6 +2733,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
       return { ok: true };
     }
     case 'theme': if (THEMES[arg]) { settings.theme = arg; saveSettings(); applyTheme(); } return { ok: true };
+    case 'language': if (kind === 'welcome' && ['auto', 'tr', 'en'].includes(arg)) { settings.languageSet = true; setLanguage(arg); } return { ok: true };
     case 'newtab-title': setNewtabTitle(arg); return { ok: true };
     case 'welcome-done': {
       settings.firstRunDone = true;
@@ -2732,8 +2746,8 @@ ipcMain.handle('page', async (e, cmd, arg) => {
   return null;
 });
 
-// Sitenin kendi logosunu ceker (Google/DuckDuckGo gibi ucuncu taraf servis kullanmadan).
-// Bulamazsa null doner; yeni sekme sayfasi bas harfi gosterir.
+// Fetches the site's own logo (without third-party services like Google/DuckDuckGo).
+// Returns null if none is found; the new tab page shows the first letter instead.
 async function fetchSiteIcon(pageUrl) {
   const fetchT = async (u, ms = 7000) => {
     const ac = new AbortController();
@@ -2756,13 +2770,13 @@ async function fetchSiteIcon(pageUrl) {
         const href = (tag.match(/\bhref\s*=\s*["']([^"']+)["']/i) || tag.match(/\bhref\s*=\s*([^\s>]+)/i) || [])[1];
         if (!href) continue;
         const size = Number((tag.match(/\bsizes\s*=\s*["']?(\d+)/i) || [])[1] || 0);
-        // 64-192 px arasi en iyisi; cok buyuk ikonlar gereksiz yer kaplar
+        // 64-192 px is best; very large icons waste space
         let score = rel.includes('apple-touch') ? 180 : size || (/\.svg(\?|$)/i.test(href) ? 160 : 32);
         if (score > 256) score = 256 - (score - 256) / 10;
         try { cands.push({ href: new URL(href.replace(/&amp;/g, '&'), base).href, score }); } catch {}
       }
     }
-  } catch { /* site acilmadi; favicon.ico denenecek */ }
+  } catch { /* site didn't load; favicon.ico will be tried */ }
   cands.sort((a, b) => b.score - a.score);
   cands.push({ href: new URL('/favicon.ico', base).href, score: 0 });
   for (const c of cands.slice(0, 4)) {
@@ -2792,7 +2806,7 @@ function createWindow(opts = {}) {
   windows.push(w);
   useWin(w);
   const c = incognito ? { frame: INCOGNITO_THEME.frame, toolbar: INCOGNITO_THEME.toolbar, symbol: '#e3e3e3' } : themeColors();
-  // Yeni pencere oncekinin biraz sag altinda acilir. Test icin MONDIUM_TEST_DISPLAY: o ekranda, odak calmadan.
+  // A new window opens slightly below-right of the previous one. For tests MONDIUM_TEST_DISPLAY: on that display, without stealing focus.
   let bounds = { width: 1280, height: 820 };
   const testDisplay = process.env.MONDIUM_TEST_DISPLAY;
   if (testDisplay != null) {
@@ -2816,12 +2830,12 @@ function createWindow(opts = {}) {
   ui = w.ui = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, 'ui-preload.js'),
-      // sandbox kapali: uzanti simgeleri (<browser-action-list>) icin preload'un modul yuklemesi gerekiyor.
-      // Arayuz sadece yerel ui.html'i gosterir, baska adrese gidemez (asagida will-navigate engelli).
+      // sandbox off: the preload must load modules for extension icons (<browser-action-list>).
+      // The UI only shows the local ui.html and can't navigate elsewhere (will-navigate is blocked below).
       sandbox: false, contextIsolation: true, nodeIntegration: false, spellcheck: false, session: mainSes
     }
   });
-  ui.setBackgroundColor('#00000000');   // menu acikken sayfa arkada gorunsun
+  ui.setBackgroundColor('#00000000');   // so the page shows behind while a menu is open
   ui.webContents.loadFile(path.join(__dirname, 'ui.html'));
   const uw = ui.webContents;
   uw.on('before-input-event', (e, input) => {
@@ -2846,7 +2860,7 @@ function createWindow(opts = {}) {
   on('focus', () => { w.focusedAt = Date.now(); });
   on('blur', () => { if (overlayOpen && overlayKind !== 'chooser' && overlayKind !== 'prompt') closeOverlay(); });
   on('swipe', (_e, dir) => { if (dir === 'left') goBack(); if (dir === 'right') goForward(); });
-  // Son normal pencere kapanirken oturumu kaydet (sonra pencere listeden cikar)
+  // Save the session while the last normal window closes (it is then removed from the list)
   on('close', () => { if (!incognito && !quitting && windows.filter((x) => !x.incognito).length === 1) saveSession(true); });
   win.on('closed', () => closedWindow(w));
   if (testDisplay != null) win.showInactive(); else win.show();
@@ -2854,7 +2868,7 @@ function createWindow(opts = {}) {
   return w;
 }
 
-// Pencere kapandi: sekmelerin ve arayuzun web iceriklerini kapat (bellek), listeden cikar
+// Window closed: close the web contents of its tabs and UI (memory), remove it from the list
 function closedWindow(w) {
   if (W === w) saveCtx();
   for (const t of w.tabs) {
@@ -2879,14 +2893,14 @@ function closedWindow(w) {
   else saveSession();
 }
 
-// Yeni pencere (Ctrl+N) ve yeni gizli pencere (Ctrl+Shift+N): yeni sekme sayfasiyla acilir
+// New window (Ctrl+N) and new incognito window (Ctrl+Shift+N): open with the new tab page
 function newWindow(incognito) {
   createWindow({ incognito });
   newTab('');
 }
 
-// Uzanti arka plan sayfalari: electron-chrome-extensions dinlenen her olay icin bir 'destroyed' dinleyicisi ekliyor
-// (uBO ~15 olay). Sayisi sinirli ve sayfa kapaninca kalkiyor; sizinti degil, sadece Node uyarisi susturuluyor.
+// Extension background pages: electron-chrome-extensions adds a 'destroyed' listener per listened event
+// (uBO ~15 events). The count is bounded and removed when the page closes; not a leak, just silencing the Node warning.
 app.on('web-contents-created', (_e, wc) => { if (wc.getType() === 'backgroundPage') wc.setMaxListeners(40); });
 app.on('second-instance', (_e, argv) => {
   useWin(lastWin(true) || lastWin());
@@ -2896,7 +2910,7 @@ app.on('second-instance', (_e, argv) => {
   const url = urlFromArgs(argv.slice(1));
   if (url) newTab(url);
 });
-// Windows'tan gelen adres ya da dosya (varsayilan tarayici / "Birlikte ac"): http(s) adresi veya var olan .html/.pdf/.svg/.webp dosyasi
+// URL or file passed from Windows (default browser / "Open with"): an http(s) URL or an existing .html/.pdf/.svg/.webp file
 function urlFromArgs(args) {
   for (const a of args) {
     if (typeof a !== 'string' || a.startsWith('-')) continue;
@@ -2907,30 +2921,30 @@ function urlFromArgs(args) {
 }
 
 app.whenReady().then(async () => {
-  // Widevine DRM: ilk acilista indirilir, sonra arka planda guncellenir (baslangici bekletmez)
+  // Widevine DRM: downloaded on first run, then updated in the background (does not delay startup)
   if (components && typeof components.whenReady === 'function') {
     const ready = components.whenReady()
-      .then(() => console.log('Widevine hazir:', JSON.stringify(components.status())))
-      .catch((e) => console.warn('Widevine yuklenemedi:', e && e.message));
+      .then(() => console.log('Widevine ready:', JSON.stringify(components.status())))
+      .catch((e) => console.warn('Could not load Widevine:', e && e.message));
     await Promise.race([ready, new Promise((r) => setTimeout(r, 5000))]);
   } else {
-    console.warn('Bu Electron surumunde Widevine yok: DRM\'li videolar (Netflix, Exxen...) oynamaz. "npm install" ile castLabs surumunu kurun.');
+    console.warn('This Electron build has no Widevine: DRM videos (Netflix, Exxen...) will not play. Install the castLabs build with "npm install".');
   }
   Menu.setApplicationMenu(isMac ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }]) : null);
 
-  // Thorium: DNS-over-HTTPS (DNS sorgulari sifreli; desteklemeyen agda otomatik normale doner)
+  // Thorium: DNS-over-HTTPS (encrypted DNS queries; falls back to normal automatically on networks that don't support it)
   try {
     app.configureHostResolver({
       secureDnsMode: 'automatic',
       secureDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.quad9.net/dns-query']
     });
-  } catch (e) { console.warn('DoH ayarlanamadi:', e.message); }
+  } catch (e) { console.warn('Could not configure DoH:', e.message); }
 
-  if (process.platform === 'win32') app.setAppUserModelId('local.mondium.tarayici');   // gorev cubugu ve bildirimlerde "Mondium"
+  if (process.platform === 'win32') app.setAppUserModelId('local.mondium.tarayici');   // "Mondium" in the taskbar and notifications
   nativeTheme.themeSource = currentTheme().mode;
   mainSes = ses = session.fromPartition('persist:main');
   setupSession(mainSes);
-  if (settings.clearGoogleOnExit) await clearGoogleData();   // onceki oturum cokmus olabilir
+  if (settings.clearGoogleOnExit) await clearGoogleData();   // the previous session may have crashed
   nativeTheme.on('updated', () => { forEachWin(() => { paintFrame(); pushState(); }); broadcastPages(); });
   createWindow();
   startBlocking();
@@ -2944,7 +2958,7 @@ app.whenReady().then(async () => {
   setInterval(keepSessionCookies, 15 * 60e3);
 });
 
-// Kapanista: ayarlari yaz, Google verilerini sil
+// On quit: write settings, clear Google data
 let cleanedUp = false;
 app.on('before-quit', (e) => {
   if (cleanedUp) return;

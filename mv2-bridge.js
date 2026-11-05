@@ -1,15 +1,15 @@
 'use strict';
-// Eski tip (MV2) uzantı sayfaları icin kopru (uBlock Origin).
-// electron-chrome-extensions, chrome.browserAction / webNavigation / contextMenus / tabs.query gibi API'leri
-// kendi onyukleyicisinde ekliyor; ama MV2 arka plan sayfasinda (baglam yalitimi kapali) ekledigi "chrome" nesnesi
-// sayfanin sonra kullandigi nesne degil ve API'ler kayboluyor. Bu onyukleyici kutuphanenin mesaj kanalini
-// (crx-msg / crx-add-listener) sayfaya acar; uzantinin ilk betigi (mondium-ece.js) API'leri gercek nesneye baglar.
-// Kanal sadece uzanti sayfalarinda acilir; ana surec her istekte gonderen uzantiyi kendisi denetler.
+// Bridge for legacy (MV2) extension pages (uBlock Origin).
+// electron-chrome-extensions adds APIs like chrome.browserAction / webNavigation / contextMenus / tabs.query
+// in its own preload; but on an MV2 background page (context isolation off) the "chrome" object it patches
+// is not the one the page uses later, so the APIs vanish. This preload exposes the library's message channel
+// (crx-msg / crx-add-listener) to the page; the extension's first script (mondium-ece.js) wires the APIs to the real object.
+// The channel opens only on extension pages; the main process verifies the sending extension on every request.
 const { ipcRenderer, contextBridge } = require('electron');
 
 if (location.protocol === 'chrome-extension:') {
   const counts = new Map();
-  const handlers = new Map();   // dinleyici -> ipc sarmalayici (kaldirabilmek icin)
+  const handlers = new Map();   // listener -> ipc wrapper (so it can be removed)
   const api = {
     invoke: (extensionId, fnName, ...args) => ipcRenderer.invoke('crx-msg', extensionId, fnName, ...args),
     addListener: (extensionId, name, callback) => {

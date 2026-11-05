@@ -1,10 +1,10 @@
 'use strict';
-// Mondium uyumluluk katmani (ana surec tarafi): chrome.userScripts.
-// Uzanti service worker'i (user-scripts-sw.js) betik kaydeder; burada saklanir ve her web sayfasi acilirken
-// page-preload.js istedigi betikleri alip uzantiya ozel ayrik bir dunyada calistirir. Mesajlar iki yonde aktarilir:
-//   sayfa  -> chrome.runtime.sendMessage -> burasi -> uzanti (onUserScriptMessage)
-//   uzanti -> chrome.tabs.sendMessage    -> burasi -> sayfa  (chrome.runtime.onMessage)
-// Bellek: bekleyen istekler zaman asiminda silinir, betik kodlari uzanti basina bir kez okunur.
+// Mondium compatibility layer (main process side): chrome.userScripts.
+// The extension service worker (user-scripts-sw.js) registers scripts; they are stored here, and as each web page
+// opens page-preload.js fetches matching scripts and runs them in an extension-specific isolated world. Messages flow both ways:
+//   page      -> chrome.runtime.sendMessage -> here -> extension (onUserScriptMessage)
+//   extension -> chrome.tabs.sendMessage    -> here -> page      (chrome.runtime.onMessage)
+// Memory: pending requests are dropped on timeout, script code is read once per extension.
 const fs = require('fs');
 const path = require('path');
 const { ipcMain, webContents } = require('electron');
@@ -16,7 +16,7 @@ const TIMEOUT = 30e3;
 function matchPattern(pattern, url) {
   let u;
   try { u = new URL(url); } catch { return false; }
-  if (!/^https?:$/.test(u.protocol)) return false;              // sadece web sayfalari
+  if (!/^https?:$/.test(u.protocol)) return false;              // web pages only
   if (pattern === '<all_urls>') return true;
   const m = /^(\*|https?):\/\/([^/]*)(\/.*)$/.exec(pattern);
   if (!m) return false;
@@ -35,23 +35,23 @@ function setupUserScripts({ ses, storeFile }) {
   if (typeof ses.registerPreloadScript !== 'function' || !ses.serviceWorkers) return false;
   ses.registerPreloadScript({ id: 'mondium-userscripts-sw', type: 'service-worker', filePath: path.join(__dirname, 'user-scripts-sw.js') });
 
-  // ---- Kayitlar (yeniden baslatmada da gecerli, uzanti calismadan ilk sayfalar da betik alsin)
+  // ---- Registrations (persist across restarts so the first pages get scripts before the extension runs)
   let reg = {};
   try { reg = JSON.parse(fs.readFileSync(storeFile, 'utf8')) || {}; } catch {}
   let saveTimer = null;
   const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.promises.writeFile(storeFile, JSON.stringify(reg)).catch(() => {}), 500); };
   const entry = (extId) => (reg[extId] = reg[extId] || { world: {}, scripts: [] });
 
-  const codeCache = new Map();   // dosya yolu -> kod
+  const codeCache = new Map();   // file path -> code
   function readCode(ext, file) {
     const full = path.resolve(ext.path, String(file).replace(/^\//, ''));
-    if (!full.startsWith(path.resolve(ext.path) + path.sep)) return null;   // uzanti klasorunun disina cikma
+    if (!full.startsWith(path.resolve(ext.path) + path.sep)) return null;   // don't escape the extension folder
     if (!codeCache.has(full)) { try { codeCache.set(full, fs.readFileSync(full, 'utf8')); } catch { codeCache.set(full, null); } }
     return codeCache.get(full);
   }
   const loadedExt = (extId) => { try { return extApi.getExtension(extId) || null; } catch { return null; } };
   if (typeof extApi.on === 'function') {
-    extApi.on('extension-loaded', () => codeCache.clear());     // guncellenen uzanti yeni kodunu kullansin
+    extApi.on('extension-loaded', () => codeCache.clear());     // updated extensions use their new code
     extApi.on('extension-unloaded', () => codeCache.clear());
   }
 
@@ -62,10 +62,10 @@ function setupUserScripts({ ses, storeFile }) {
     js: Array.isArray(s.js) ? s.js.filter((j) => j && (typeof j.file === 'string' || typeof j.code === 'string')).map((j) => (j.file ? { file: j.file } : { code: j.code })) : []
   });
 
-  // ---- Uzanti service worker'lari
+  // ---- Extension service workers
   const attached = new WeakSet();
-  const workers = new Map();                       // uzanti kimligi -> calisan worker
-  const pending = new Map();                       // istek no -> { resolve, timer }
+  const workers = new Map();                       // extension id -> running worker
+  const pending = new Map();                       // request no -> { resolve, timer }
   let nextReq = 1;
   const wait = (reqId) => new Promise((resolve) => {
     const timer = setTimeout(() => { pending.delete(reqId); resolve(undefined); }, TIMEOUT);
@@ -110,7 +110,7 @@ function setupUserScripts({ ses, storeFile }) {
         return wait(reqId);
       }
     }
-    return { error: 'Bilinmeyen işlem' };
+    return { error: 'Unknown action' };
   }
 
   function attach(versionId) {
@@ -121,7 +121,7 @@ function setupUserScripts({ ses, storeFile }) {
     workers.set(extId, w);
     if (attached.has(w)) return;
     attached.add(w);
-    w.ipc.handle('mondium-us', (_e, op, ...args) => swCall(extId, op, args));   // kimlik worker'in kendi adresinden alinir
+    w.ipc.handle('mondium-us', (_e, op, ...args) => swCall(extId, op, args));   // id is taken from the worker's own URL
     w.ipc.on('mondium-us-reply', (_e, reqId, value) => settle(reqId, value));
   }
   ses.serviceWorkers.on('running-status-changed', ({ runningStatus, versionId }) => {
@@ -137,12 +137,12 @@ function setupUserScripts({ ses, storeFile }) {
     catch { return null; }
   }
 
-  // ---- Sayfa tarafi
-  // Sayfa acilirken (preload, senkron): bu adrese uyan betikler
+  // ---- Page side
+  // On page open (preload, sync): scripts matching this URL
   ipcMain.on('mondium-us-get', (e, url) => {
     const out = [];
     try {
-      if (e.senderFrame && e.senderFrame.parent) { e.returnValue = out; return; }   // simdilik sadece ana kare
+      if (e.senderFrame && e.senderFrame.parent) { e.returnValue = out; return; }   // main frame only for now
       Object.keys(reg).forEach((extId, i) => {
         const ext = loadedExt(extId);
         if (!ext || !reg[extId].scripts.length) return;
@@ -157,11 +157,11 @@ function setupUserScripts({ ses, storeFile }) {
         }
         if (pack.start.length || pack.end.length || pack.idle.length) out.push(pack);
       });
-    } catch (err) { console.warn('Kullanici betikleri hazirlanamadi:', err.message); }
+    } catch (err) { console.warn('Could not prepare user scripts:', err.message); }
     e.returnValue = out;
   });
 
-  // Sayfadan uzantiya mesaj
+  // Page -> extension message
   ipcMain.handle('mondium-us-msg', async (e, extId, msg) => {
     if (!reg[extId] || !loadedExt(extId)) return undefined;
     const wc = e.sender;
@@ -177,10 +177,10 @@ function setupUserScripts({ ses, storeFile }) {
     try { w.send('mondium-us-deliver', reqId, msg, sender); } catch { return undefined; }
     return wait(reqId);
   });
-  // Sayfanin uzantiya cevabi (chrome.tabs.sendMessage karsiligi)
+  // Page's reply to the extension (for chrome.tabs.sendMessage)
   ipcMain.on('mondium-us-tabreply', (_e, reqId, value) => settle(reqId, value));
 
-  // Kaldirilmis uzantilarin kayitlarini temizle
+  // Purge registrations of removed extensions
   setTimeout(() => {
     let changed = false;
     for (const extId of Object.keys(reg)) {

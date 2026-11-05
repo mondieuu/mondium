@@ -1,3 +1,3 @@
 'use strict';
-// electron-builder afterSign kancasi (Windows)
+// electron-builder afterSign hook (Windows)
 exports.default = require('./vmp-imza').afterSignWin;

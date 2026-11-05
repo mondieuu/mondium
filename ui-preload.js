@@ -22,12 +22,12 @@ contextBridge.exposeInMainWorld('browserApi', {
   onSideReveal: (fn) => ipcRenderer.on('side-reveal', (_e, v) => fn(v))
 });
 
-// Uzanti simgeleri icin <browser-action-list> ogesi
+// <browser-action-list> element for extension icons
 try {
   let mod;
   try { mod = require('electron-chrome-extensions/browser-action'); }
   catch { mod = require('electron-chrome-extensions/dist/browser-action'); }
   mod.injectBrowserAction();
 } catch (e) {
-  console.warn('Uzanti simgeleri yuklenemedi:', e.message);
+  console.warn('Could not load extension icons:', e.message);
 }

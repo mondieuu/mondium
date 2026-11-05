@@ -1,12 +1,12 @@
-// Mondium okuma modu. Ana surec bunu sayfaya ayrik dunyada (isolated world) enjekte eder.
-// Sayfanin ana yazisini bulur, sade bir katmanda gosterir. Tekrar calistirilinca katmani kapatir.
-// innerHTML kullanilmaz (Trusted Types olan sitelerde de calissin); dugumler klonlanir ve temizlenir.
+// Mondium reader mode. The main process injects this into the page in an isolated world.
+// Finds the page's main article and shows it in a clean overlay. Running it again closes the overlay.
+// No innerHTML (so it works on Trusted Types sites too); nodes are cloned and sanitized.
 (() => {
   const ID = '__mondium_okuma';
   const old = document.getElementById(ID);
   if (old) { old.__close ? old.__close() : old.remove(); return 'kapandi'; }
 
-  // ---- 1) Ana yaziyi bul: en cok paragraf metnini toplayan kapsayici
+  // ---- 1) Find the main article: the container collecting the most paragraph text
   const scores = new Map();
   for (const p of document.querySelectorAll('p, pre, blockquote')) {
     const len = (p.textContent || '').trim().length;
@@ -20,7 +20,7 @@
   if (art && (art.textContent || '').trim().length > 400 && (!best || art.contains(best))) best = art;
   if (!best || bestScore < 250) return 'bulunamadi';
 
-  // ---- 2) Temiz kopya
+  // ---- 2) Clean copy
   const KEEP = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'CODE', 'IMG', 'PICTURE', 'SOURCE',
     'FIGURE', 'FIGCAPTION', 'A', 'STRONG', 'EM', 'B', 'I', 'U', 'S', 'BR', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'SUP', 'SUB', 'SPAN', 'DIV', 'SECTION', 'ARTICLE', 'MARK', 'SMALL', 'DL', 'DT', 'DD']);
   const DROP = 'script, style, noscript, iframe, form, nav, aside, footer, button, input, select, textarea, svg, canvas, video, audio, object, embed, dialog, ' +
@@ -34,13 +34,13 @@
       if (el !== root && (BAD_CLASS.test(el.className && el.className.baseVal === undefined ? el.className : '') || BAD_CLASS.test(el.id || ''))) {
         if ((el.textContent || '').length < 600) { el.remove(); continue; }
       }
-      if (!KEEP.has(el.tagName)) {   // bilinmeyen ogeyi icerigiyle birlikte basit kapsayiciya cevir
+      if (!KEEP.has(el.tagName)) {   // turn unknown elements into a plain container, keeping content
         const span = document.createElement('div');
         while (el.firstChild) span.appendChild(el.firstChild);
         if (el.parentNode) el.parentNode.replaceChild(span, el);
         continue;
       }
-      // Tembel yuklenen resimler
+      // Lazy-loaded images
       if (el.tagName === 'IMG') {
         const lazy = el.getAttribute('data-src') || el.getAttribute('data-lazy-src') || el.getAttribute('data-original');
         const src = el.currentSrc || el.src || lazy;
@@ -54,7 +54,7 @@
         if (!['href', 'src', 'alt', 'title', 'colspan', 'rowspan'].includes(at.name)) el.removeAttribute(at.name);
       }
     }
-    // Bos kalan kapsayicilari at
+    // Drop containers left empty
     for (const el of [...root.querySelectorAll('div, span, section')].reverse()) {
       if (!el.textContent.trim() && !el.querySelector('img')) el.remove();
     }
@@ -67,7 +67,7 @@
   if (h1 && best.contains(h1)) { const dup = body.querySelector('h1'); if (dup && dup.textContent.trim() === titleText) dup.remove(); }
   const words = (body.textContent || '').trim().split(/\s+/).length;
 
-  // ---- 3) Katman
+  // ---- 3) Overlay
   const host = document.createElement('div');
   host.id = ID;
   host.style.setProperty('all', 'initial');

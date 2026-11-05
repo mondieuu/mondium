@@ -24,7 +24,7 @@
   button { font:inherit; color:inherit; border:0; background:none; }
   svg { width:20px; height:20px; fill:currentColor; display:block; }
 
-  /* ---------- Sekme seridi ---------- */
+  /* ---------- Tab strip ---------- */
   #strip { height:42px; background:var(--frame); display:flex; align-items:flex-end; padding:0 8px; -webkit-app-region:drag; }
   body.mac #strip { padding-left:80px; }
   body.overlay #strip { padding-right:146px; }
@@ -57,7 +57,7 @@
   .tab.narrow:not(.on) .x { display:none; }
   .tab.narrow.on .ico { display:none; }
   .tab.drag { opacity:.85; z-index:5; }
-  /* Sabitlenmis sekme: sadece simge */
+  /* Pinned tab: icon only */
   .tab.pin { width:44px; flex:none; padding:0; justify-content:center; gap:2px; }
   .tab.pin .title, .tab.pin .x { display:none; }
   .tab.pin .aud { position:absolute; right:3px; top:6px; width:14px; height:14px; border-radius:50%; background:var(--frame); }
@@ -67,7 +67,7 @@
   .tab .aud:hover { background:var(--hover); opacity:1; }
   .tab .aud.boost { color:var(--accent); fill:var(--accent); opacity:1; }
 
-  /* ---------- Dikey sekmeler (solda kenar cubugu) ---------- */
+  /* ---------- Vertical tabs (sidebar on the left) ---------- */
   #side { display:none; }
   body.vert { display:flex; flex-direction:column; }
   body.vert #strip { display:none; }
@@ -76,7 +76,7 @@
   body.vert.overlay #toolbar { padding-right:146px; }
   body.vert #bbar, body.vert #find { flex:none; }
   body.vert #side { display:flex; flex-direction:column; flex:1; min-height:0; width:var(--sw, 240px); background:var(--frame); position:relative; }
-  /* Saklanma modu: kenar cubugu solda gizli, acilinca ayni genislikte sayfanin ustune kayar */
+  /* Auto-hide mode: sidebar hidden on the left, slides over the page at the same width when opened */
   body.vert.autohide #side { position:absolute; left:0; top:var(--top, 46px); bottom:0; transform:translateX(-102%); transition:transform .16s ease-out;
     box-shadow:6px 0 18px rgba(0,0,0,.28); z-index:60; border-radius:0 10px 10px 0; }
   body.vert.autohide.reveal #side { transform:none; }
@@ -87,7 +87,7 @@
   #shide { width:34px; height:34px; border-radius:8px; flex:none; display:flex; align-items:center; justify-content:center; color:var(--dim); }
   #shide svg { width:18px; height:18px; }
   body.vert #side #incog { margin:0 0 0 2px; }
-  /* Bos alandan (sekmelerin alti, ust bosluk) pencere surukleme; sekmeler/dugmeler tiklanabilir kalir */
+  /* Drag the window from empty space (below tabs, top gap); tabs/buttons stay clickable */
   body.vert #side { -webkit-app-region:drag; }
   body.vert.autohide:not(.reveal) #side { -webkit-app-region:no-drag; }
   body.vert #side .tab, body.vert #snew, body.vert #shide, body.vert #grip, body.vert #side #incog { -webkit-app-region:no-drag; }
@@ -104,7 +104,7 @@
   body.vert .tab.pin .aud { position:static; background:none; width:16px; height:16px; }
   body.vert .tab .x { opacity:0; }
   body.vert .tab:hover .x, body.vert .tab.on .x { opacity:1; }
-  /* En dar hal: sadece simgeler */
+  /* Narrowest state: icons only */
   body.vert.slim #snew span, body.vert.slim #shide, body.vert.slim #side #incog { display:none; }
   body.vert.slim #snew { justify-content:center; padding:0; }
   body.vert.slim .tab { justify-content:center; padding:0; gap:0; }
@@ -115,7 +115,7 @@
   body.vert.autohide #grip { display:none; }
   body.sizing, body.sizing * { cursor:ew-resize !important; }
 
-  /* ---------- Adres cubugu onerileri ---------- */
+  /* ---------- Address bar suggestions ---------- */
   #sug { position:fixed; z-index:90; background:var(--toolbar); border-radius:0 0 18px 18px; padding:4px 0 10px;
     box-shadow:0 6px 12px rgba(0,0,0,.18); font:14px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
   #sug[hidden] { display:none; }
@@ -135,7 +135,7 @@
   #newtab:hover { background:var(--hover); }
   #newtab:active { background:var(--press); }
 
-  /* ---------- Arac cubugu ---------- */
+  /* ---------- Toolbar ---------- */
   #toolbar { height:46px; background:var(--toolbar); border-bottom:1px solid transparent; display:flex; align-items:center; gap:2px; padding:0 6px; }
   .btn { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--dim); flex:none; position:relative; }
   .btn:hover:not(:disabled) { background:var(--hover); }
@@ -165,7 +165,7 @@
   #star:hover { background:var(--hover); }
   #star.on { color:var(--accent); }
   #star[hidden] { display:none; }
-  /* Ses yukseltme dugmesi (adres cubugunun icinde, yildizin solunda) */
+  /* Volume boost button (inside the address bar, left of the star) */
   #vol { width:28px; height:28px; margin-right:4px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--dim); flex:none; position:relative; }
   #vol svg { width:18px; height:18px; }
   #vol:hover { background:var(--hover); }
@@ -173,7 +173,7 @@
   #vol:disabled { opacity:.35; }
   #vol:disabled:hover { background:none; }
   #vol .vb { position:absolute; right:-2px; bottom:0; font-size:8px; font-weight:700; line-height:10px; padding:0 2px; border-radius:5px; background:var(--accent); color:var(--toolbar); }
-  /* Ses balonu: ust satir (simge, baslik, deger), kaydirici + olcek, alt cubuk */
+  /* Volume bubble: top row (icon, title, value), slider + scale, bottom bar */
   .panel.vp { width:340px; padding:0; overflow:hidden; white-space:normal; }
   .vp .vh { display:flex; align-items:center; gap:12px; padding:16px 20px 4px; }
   .vp .vh svg { width:22px; height:22px; color:var(--accent); flex:none; }
@@ -182,7 +182,7 @@
   .vp .vr { padding:10px 20px 2px; }
   .vp input[type=range] { display:block; width:100%; height:20px; margin:0; accent-color:var(--accent); outline:none; }
   .vp .vs { position:relative; height:16px; margin:4px 0 0; color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
-  /* Olcek etiketleri kaydirici izinin uzerinde (tutamac genisligi kadar iceriden) */
+  /* Scale labels sit on the slider track (inset by the thumb width) */
   .vp .vs span { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; }
   .vp .vq { display:flex; gap:6px; padding:10px 20px 14px; }
   .vp .vq button { flex:1; height:28px; border-radius:14px; border:1px solid var(--border); color:var(--text); font-size:12px; font-variant-numeric:tabular-nums; }
@@ -192,11 +192,11 @@
   .vp .vf span { flex:1; min-width:0; }
   .vp .vf button { flex:none; height:32px; padding:0 14px; border-radius:16px; border:1px solid var(--border); color:var(--accent); font-weight:500; white-space:nowrap; }
   .vp .vf button:hover { background:var(--hover); }
-  /* Gizli pencere rozeti (sekme seridinin sagi) */
+  /* Incognito badge (right side of the tab strip) */
   #incog { flex:none; display:flex; align-items:center; gap:6px; height:28px; margin:0 6px 4px auto; padding:0 10px; border-radius:14px; color:#e3e3e3; font-size:12px; -webkit-app-region:no-drag; }
   #incog svg { width:18px; height:18px; }
   #incog[hidden] { display:none; }
-  /* Uzantilar paneli (yapboz) */
+  /* Extensions panel (puzzle) */
   .panel.xp { width:320px; }
   .xp .xt { padding:6px 16px 10px; font-size:14px; font-weight:500; }
   .xp .mi { height:40px; }
@@ -206,7 +206,7 @@
   .xp .pin.on { color:var(--accent); }
   .xp .pin:hover { background:var(--hover); }
 
-  /* ---------- Yer isaretleri cubugu ---------- */
+  /* ---------- Bookmarks bar ---------- */
   #bbar { height:32px; background:var(--toolbar); display:none; align-items:center; gap:2px; padding:0 8px 2px; overflow:hidden; border-bottom:1px solid var(--border); }
   body.bbar #bbar { display:flex; }
   .bm { height:28px; max-width:170px; display:flex; align-items:center; gap:6px; padding:0 8px; border-radius:14px; color:var(--text); flex:none; }
@@ -217,7 +217,7 @@
   .bm span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   #bbar .hintx { color:var(--dim); padding:0 6px; white-space:nowrap; }
 
-  /* ---------- Uzanti simgeleri ---------- */
+  /* ---------- Extension icons ---------- */
   #actions { display:flex; align-items:center; }
   browser-action-list { display:flex; align-items:center; gap:2px; }
   browser-action-list::part(action) { width:34px; height:34px; border-radius:50%; background-size:18px; background-position:center; background-repeat:no-repeat; }
@@ -225,7 +225,7 @@
   browser-action-list::part(badge) { font-size:9px; border-radius:7px; padding:0 3px; bottom:4px; right:2px; }
   #ext[hidden] { display:none; }
 
-  /* ---------- Chrome tarzi menu ---------- */
+  /* ---------- Chrome-style menu ---------- */
   #pop { position:fixed; inset:0; z-index:100; }
   #pop[hidden] { display:none; }
   .panel { position:absolute; width:316px; max-height:calc(100vh - 60px); overflow-y:auto; overflow-x:hidden;
@@ -254,7 +254,7 @@
   .zoom .zb svg { width:18px; height:18px; }
   .zoom .zv { min-width:48px; text-align:center; font-variant-numeric:tabular-nums; }
   .zoom .zs { width:1px; height:20px; background:var(--border); margin:0 6px; }
-  /* Chrome izin balonu gibi: baslik + x, satirlar, cizgi, sagda iki cerceveli dugme */
+  /* Like Chrome's permission bubble: title + x, rows, divider, two outlined buttons on the right */
   .bubble { position:absolute; width:420px; max-width:calc(100vw - 16px); background:var(--menu); color:var(--text); border-radius:12px;
     box-shadow:0 2px 6px rgba(0,0,0,.18), 0 10px 28px rgba(0,0,0,.28); font:14px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
     animation:pin .12s ease-out; white-space:normal; overflow:hidden; }
@@ -275,7 +275,7 @@
   .bubble .bf button:hover { background:var(--hover); }
   .bubble .bf button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   .bubble .bf button:disabled { opacity:.4; }
-  /* Cihaz secici listesi */
+  /* Device chooser list */
   .bubble .dl { border:1px solid var(--border); border-radius:8px; max-height:236px; overflow-y:auto; margin-top:4px; }
   .bubble .dr { display:flex; align-items:center; gap:14px; padding:10px 14px; cursor:default; }
   .bubble .dr + .dr { border-top:1px solid var(--border); }
@@ -288,7 +288,7 @@
   .bubble .wait .spin { display:inline-block; vertical-align:-3px; margin-right:6px; }
   .empty { padding:8px 16px; color:var(--dim); font-size:12px; white-space:normal; line-height:1.5; }
 
-  /* ---------- Bul cubugu ---------- */
+  /* ---------- Find bar ---------- */
   #find { height:40px; background:var(--toolbar); display:none; align-items:center; justify-content:flex-end; padding:0 12px; border-top:1px solid var(--border); gap:4px; }
   body.find #find { display:flex; }
   body:not(.bbar):not(.find) #toolbar { border-bottom-color:var(--border); }
@@ -374,9 +374,9 @@ if (browserApi.platform === 'darwin') document.body.classList.add('mac'); else d
 const tabsEl = $('tabs'), url = $('url'), omni = $('omni');
 let state = null, editing = false, drag = null;
 
-// ---------- Arac cubugu
+// ---------- Toolbar
 $('back').onclick = () => send('back');
-// Site bilgisi: "Bu siteyi temizlikten koru" ve site verileri
+// Site info: "protect this site from clearing" and site data
 $('lead').onclick = (e) => { if (state && /^https?:/i.test(state.url || '') || /^[^:]+\.[a-z]/i.test(state && state.url || '')) send('site-menu', posOf(e.currentTarget)); };
 $('fwd').onclick = () => send('forward');
 $('reload').onclick = () => send(state && state.loading ? 'stop' : 'reload');
@@ -388,9 +388,9 @@ $('bbar').oncontextmenu = (e) => { if (e.target === $('bbar') || e.target.classL
 const posOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.bottom + 2 }; };
 $('dl').onclick = (e) => send('downloads', posOf(e.currentTarget));
 
-// Kullanicinin yazdigi metin (Chrome gibi) odak gidip gelince, yeni sekme sayfasi yuklenince ya da durum guncellenince
-// SILINMEZ. Eskiden yeni sekmede hizli yazinca sayfa yuklenip odak geri gelince adres cubugu sifirlaniyor/tumu seciliyordu;
-// Enter bos kutuda "hicbir sey yapmiyordu". Sadece Esc, gezinme, sekme ya da sayfa degisince sifirlanir.
+// Text the user typed is NOT cleared (like Chrome) when focus moves, the new tab page loads or state updates.
+// Previously, typing fast in a new tab reset/selected the address bar once the page loaded and focus returned,
+// so Enter "did nothing" on an empty box. It resets only on Esc, navigation, or tab/page change.
 let dirty = false, dirtyKey = '';
 const pageKey = () => (state ? state.activeId + '|' + state.url : '');
 url.addEventListener('focus', () => {
@@ -403,7 +403,7 @@ url.addEventListener('focus', () => {
 });
 url.addEventListener('blur', () => { editing = false; omni.classList.remove('focus'); hideSug(); renderOmni(); });
 
-// ---------- Adres cubugu onerileri (sadece yerel gecmis ve yer isaretleri; yazilanlar disari gitmez)
+// ---------- Address bar suggestions (local history and bookmarks only; typed text never leaves the browser)
 const sug = $('sug');
 let sugRows = [], sugSel = 0, typed = '', lastWasDelete = false;
 const looksUrl = (v) => /^(https?:\/\/|mondium:\/\/|file:|localhost)/i.test(v) || (!/\s/.test(v) && /^[^\s/]+\.[a-z]{2,}(:\d+)?(\/.*)?$/i.test(v));
@@ -442,7 +442,7 @@ function drawSug(res) {
       const u = document.createElement('span'); u.className = 'su'; u.textContent = prettyUrl(r.url);
       el.append(ic, t, u);
     }
-    el.onmousedown = (e) => e.preventDefault();      // adres cubugu odagini kaybetmesin
+    el.onmousedown = (e) => e.preventDefault();      // keep address bar focus
     el.onclick = (e) => { sugSel = i; go(e.ctrlKey || e.button === 1 ? 'tab' : null); };
     el.onmouseenter = () => selectSug(i, false);
     return el;
@@ -465,9 +465,9 @@ url.addEventListener('input', (e) => {
   send('omni-query', typed);
 });
 browserApi.onOmni((r) => {
-  if (!editing || r.q !== typed) return;          // eski cevap
+  if (!editing || r.q !== typed) return;          // stale reply
   if (!r.items.length) { hideSug(); return; }
-  // Chrome gibi satir ici tamamlama (silerken yapilmaz)
+  // Chrome-like inline completion (not while deleting)
   if (r.inline && !lastWasDelete && url.selectionStart === typed.length && r.inline.startsWith(typed.toLowerCase())) {
     url.value = typed + r.inline.slice(typed.length);
     url.setSelectionRange(typed.length, url.value.length);
@@ -480,7 +480,7 @@ url.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') {
     e.preventDefault();
     let v = url.value.trim();
-    // Ctrl+Enter: "ornek" -> www.ornek.com (Chrome gibi)
+    // Ctrl+Enter: "example" -> www.example.com (like Chrome)
     if (e.ctrlKey && v && !/[\s./:]/.test(v)) { url.value = 'www.' + v + '.com'; sugRows = []; }
     if (sugSel === 0 && sugRows[0]) sugRows[0].url = null;
     go(e.altKey || e.shiftKey ? 'tab' : null);
@@ -493,10 +493,10 @@ url.addEventListener('keydown', (e) => {
 browserApi.onFocusUrl((d) => {
   url.focus();
   if (d.search) { dirty = false; url.value = ''; typed = ''; hideSug(); }
-  else if (!dirty) url.select();   // kullanici yazmaya basladiysa metnini secip ezdirme
+  else if (!dirty) url.select();   // if the user started typing, don't select (and overwrite) their text
 });
 
-// Chrome gibi: odak disindayken "https://www." gizlenir
+// Like Chrome: "https://www." is hidden when not focused
 function prettyUrl(u) {
   if (!u) return '';
   try {
@@ -518,13 +518,13 @@ function renderLead() {
 }
 function renderOmni() {
   if (!state || editing) return;
-  if (dirty && dirtyKey === pageKey()) { renderLead(); return; }   // yazilan metin korunur
+  if (dirty && dirtyKey === pageKey()) { renderLead(); return; }   // typed text is kept
   dirty = false;
   url.value = state.fullUrl ? state.url : prettyUrl(state.url);
   renderLead();
 }
 
-// ---------- Bul cubugu
+// ---------- Find bar
 const findq = $('findq');
 let lastFind = '';
 findq.addEventListener('input', () => { lastFind = findq.value; send('find', { text: findq.value, next: false }); if (!findq.value) $('findn').textContent = ''; });
@@ -538,7 +538,7 @@ $('fclose').onclick = () => send('find-close');
 browserApi.onFocusFind(() => { findq.focus(); findq.select(); if (findq.value) send('find', { text: findq.value, next: false }); });
 browserApi.onFound((r) => { $('findn').textContent = findq.value ? `${r.active}/${r.total}` : ''; });
 
-// ---------- Sekmeler
+// ---------- Tabs
 function tabEl(t, active) {
   const d = document.createElement('div');
   d.className = 'tab' + (active ? ' on' : '') + (t.sleeping ? ' sleep' : '') + (t.pinned ? ' pin' : '');
@@ -555,7 +555,7 @@ function tabEl(t, active) {
   d.appendChild(ico);
   const ti = document.createElement('span'); ti.className = 'title'; ti.textContent = t.title || 'Yeni Sekme'; d.appendChild(ti);
   if (!state || state.tabAudio !== false) if (t.audible || t.muted || t.volume !== 100) {
-    // Ses simgesine tiklayinca sekmenin sesi acilir/kapanir (Chrome gibi)
+    // Clicking the speaker icon mutes/unmutes the tab (like Chrome)
     const a = document.createElement('span'); a.className = 'aud'; a.innerHTML = t.muted ? I.muted : I.audio;
     if (!t.muted && t.volume !== 100) a.classList.add('boost');
     a.title = t.muted ? 'Sekmenin sesini aç' : 'Sekmenin sesini kapat';
@@ -580,7 +580,7 @@ function tabEl(t, active) {
   return d;
 }
 
-// Surukleyerek sekme siralama
+// Reorder tabs by dragging
 window.addEventListener('mousemove', (e) => {
   if (!drag) return;
   const vert = document.body.classList.contains('vert');
@@ -609,16 +609,16 @@ window.addEventListener('mouseup', (e) => {
 
 function fitTabs() {
   if (document.body.classList.contains('vert')) { for (const el of tabsEl.children) el.classList.remove('narrow'); return; }
-  const first = tabsEl.querySelector('.tab:not(.pin)');   // sabit sekmeler hep dar; olcu normal sekmeden alinir
+  const first = tabsEl.querySelector('.tab:not(.pin)');   // pinned tabs are always narrow; measure a normal tab
   if (!first) return;
   const w = first.getBoundingClientRect().width;
   for (const el of tabsEl.children) el.classList.toggle('narrow', w < 80);
 }
 window.addEventListener('resize', fitTabs);
 
-// ---------- Durum
+// ---------- State
 let pending = null;
-// Renkli temalar: CSS degiskenlerini ezer; sistem/acik/koyu temalarda varsayilanlar kullanilir
+// Color themes override CSS variables; system/light/dark themes use the defaults
 let themeKey = '';
 function applyThemeVars(t) {
   const key = JSON.stringify(t);
@@ -642,7 +642,7 @@ function render(s) {
   state = s;
   document.body.classList.toggle('find', !!s.findOpen);
   renderSide(s);
-  // Sekme seridi sadece sekmeler gercekten degistiyse yeniden cizilir (gereksiz DOM ve resim yuklemesi yok)
+  // Tab strip is redrawn only if tabs actually changed (no needless DOM work or image loads)
   const tKey = s.activeId + '|' + JSON.stringify(s.tabs);
   if (tKey !== tabsKey) {
     tabsKey = tKey;
@@ -663,7 +663,7 @@ function render(s) {
   star.title = s.bookmarked ? 'Yer işaretini kaldır (Ctrl+D)' : 'Bu sayfaya yer işareti koy (Ctrl+D)';
   renderBookmarks(s);
   $('ext').hidden = !s.extSupport;
-  // Ses dugmesi her zaman gorunur; web sayfasi olmayan sekmelerde (yeni sekme, ayarlar...) soluk
+  // Volume button is always visible; dimmed on non-web tabs (new tab, settings...)
   const vol = $('vol');
   vol.hidden = false;
   vol.disabled = !s.canVolume;
@@ -688,7 +688,7 @@ function render(s) {
     ? `conic-gradient(var(--accent) ${Math.round(p * 360)}deg, transparent 0)` : 'none';
 }
 let tabsKey = '', bmKey = '';
-// ---------- Dikey sekmeler
+// ---------- Vertical tabs
 const sideEl = $('side');
 let sideKey = '';
 function renderSide(s) {
@@ -697,11 +697,11 @@ function renderSide(s) {
   body.classList.toggle('vert', vert);
   body.classList.toggle('autohide', vert && !!s.autoHide);
   if (!s.sideOpen && !sizing) body.classList.remove('reveal');
-  // Sekme listesi ve "Gizli" rozeti duzene gore yer degistirir
+  // Tab list and the "Incognito" badge move depending on the layout
   const home = vert ? $('vtabs') : $('strip');
   if (tabsEl.parentNode !== home) {
     if (vert) home.append(tabsEl); else $('strip').insertBefore(tabsEl, $('newtab'));
-    tabsKey = '';   // yeniden ciz
+    tabsKey = '';   // force redraw
   }
   const ig = $('incog');
   if (vert && ig.parentNode !== $('sidehead')) $('sidehead').append(ig);
@@ -710,7 +710,7 @@ function renderSide(s) {
     tabsEl.style.cssText = 'display:flex;flex-direction:column;gap:2px;height:auto;align-items:stretch';
     if (!sizing) setSideWidth(s.sideWidth);
     $('shide').title = s.autoHide ? 'Kenar çubuğunu sabitle (Ctrl+S)' : 'Kenar çubuğunu gizle (Ctrl+S)';
-    // Saklanma modunda acilan cubuk ust cubuklarin hemen altindan baslar
+    // In auto-hide mode the opened sidebar starts right below the top bars
     const key = s.bookmarksBar + '|' + s.findOpen;
     if (key !== sideKey) { sideKey = key; requestAnimationFrame(() => { const b = ($('find').offsetHeight ? $('find') : $('bbar').offsetHeight ? $('bbar') : $('toolbar')).getBoundingClientRect().bottom; document.documentElement.style.setProperty('--top', b + 'px'); }); }
   } else tabsEl.style.cssText = '';
@@ -721,7 +721,7 @@ function setSideWidth(w) {
 }
 $('snew').onclick = () => send('new-tab');
 $('shide').onclick = () => send('toggle-autohide');
-// Genislik tutamaci: surukleme sirasinda arayuz one alinir (fare sayfanin ustunde de olsa olaylar gelir)
+// Width handle: UI is raised while dragging (so events arrive even with the mouse over the page)
 let sizing = false, sizeRaf = 0, sizeW = 0;
 $('grip').onmousedown = (e) => {
   if (e.button !== 0 || !state || !state.vertical || state.autoHide) return;
@@ -738,7 +738,7 @@ window.addEventListener('mousemove', (e) => {
     if (!sizeRaf) sizeRaf = requestAnimationFrame(() => { sizeRaf = 0; send('side-width', sizeW); });
     return;
   }
-  // Saklanma modu: fare arayuzun (ust cubuklarin) sol kenarina gelirse de acilir
+  // Auto-hide mode: also opens when the mouse reaches the UI's (top bars') left edge
   if (state && state.vertical && state.autoHide && !document.body.classList.contains('reveal') && e.clientX < (state.sideEdge || 2)) send('side-reveal');
 });
 window.addEventListener('mouseup', () => {
@@ -748,7 +748,7 @@ window.addEventListener('mouseup', () => {
   if (sizeW) send('side-width', sizeW);
   send('side-drag-end');
 });
-// Acilan kenar cubugundan fare cikinca kapanir (menu/balon acikken degil)
+// Opened sidebar closes when the mouse leaves it (not while a menu/bubble is open)
 sideEl.addEventListener('mouseleave', (e) => {
   if (!state || !state.autoHide || !document.body.classList.contains('reveal') || menu || prompt || chooser) return;
   send('side-hide');
@@ -756,7 +756,7 @@ sideEl.addEventListener('mouseleave', (e) => {
 let revealTimer = 0;
 browserApi.onSideReveal((v) => {
   document.body.classList.toggle('reveal', !!v);
-  // Acildiktan hemen sonra fare cubugun disindaysa (kenara dokunup gecti) kapat; onceki acilisin zamanlayicisi iptal
+  // If the mouse is outside right after opening (just brushed the edge), close; cancel the previous open's timer
   clearTimeout(revealTimer); revealTimer = 0;
   if (v) revealTimer = setTimeout(() => { revealTimer = 0; if (!sideEl.matches(':hover') && state && state.autoHide) send('side-hide'); }, 700);
 });
@@ -773,7 +773,7 @@ function renderBookmarks(s) {
     bar.replaceChildren(h); return;
   }
   bar.replaceChildren(...s.bookmarks.map((b) => {
-    if (b.folder) {   // ice aktarilan klasor: tiklayinca alt klasorleriyle menu acilir
+    if (b.folder) {   // imported folder: click opens a menu with its subfolders
       const el = document.createElement('button'); el.className = 'bm folder'; el.title = `${b.folder} (${b.count} yer işareti)`;
       const ic = document.createElement('span'); ic.innerHTML = MI.folder; el.appendChild(ic.firstElementChild || ic);
       const t = document.createElement('span'); t.textContent = b.folder; el.appendChild(t);
@@ -796,7 +796,7 @@ function globeEl() { const s = document.createElement('span'); s.innerHTML = I.g
 let actionsWait = false, lastState = null;
 function renderActions(s) {
   if (!s.extSupport || !window.customElements) return;
-  // Oge tanimi arayuz ilk cizildiginde henuz hazir olmayabilir: hazir olunca son durumla yeniden ciz
+  // The element may not be defined yet on first render: redraw with the latest state once it is
   if (!customElements.get('browser-action-list')) {
     if (!actionsWait) { actionsWait = true; customElements.whenDefined('browser-action-list').then(() => { if (lastState) renderActions(lastState); }); }
     return;
@@ -809,7 +809,7 @@ function renderActions(s) {
     $('actions').appendChild(el);
   }
   if (s.activeWcId > 0 && el.getAttribute('tab') !== String(s.activeWcId)) el.setAttribute('tab', String(s.activeWcId));
-  // Gizlenen uzantilar arac cubugunda gorunmez (yapboz panelinden yine kullanilabilir)
+  // Hidden extensions don't show in the toolbar (still usable from the puzzle panel)
   const root = el.shadowRoot;
   if (root) {
     let st = root.getElementById('mondium-hide');
@@ -821,8 +821,8 @@ function renderActions(s) {
     if (st.textContent !== css) st.textContent = css;
   }
 }
-// Panelden bir uzantiyi calistir: gizli olsa bile acilir pencere yapboz dugmesinin altinda acilsin diye
-// dugme bir anligina oraya tasinip tiklanir (kutuphane konumu tiklama aninda olcuyor).
+// Run an extension from the panel: so its popup opens under the puzzle button even when hidden, the button
+// is briefly moved there and clicked (the library measures the position at click time).
 function activateExt(id) {
   const list = document.querySelector('browser-action-list');
   const b = list && list.shadowRoot && list.shadowRoot.querySelector(`[id="${id}"]`);
@@ -834,7 +834,7 @@ function activateExt(id) {
   return true;
 }
 browserApi.onState(render);
-// ================================================================ Chrome tarzi menu
+// ================================================================ Chrome-style menu
 const P = (d) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 const MI = {
   newtab: P('M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zm-6-8h-2v3H8v2h3v3h2v-3h3v-2h-3v-3z'),
@@ -870,7 +870,7 @@ const MI = {
   blank: ''
 };
 
-// Izin balonu satir simgeleri
+// Permission bubble row icons
 const PI = {
   location: '<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg>',
   camera: '<svg viewBox="0 0 24 24"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>',
@@ -1007,7 +1007,7 @@ function zoomRow() {
   return row;
 }
 
-// ---------- Ses balonu (adres cubugundaki dugmeden; sadece bu sekme, %0 - %600)
+// ---------- Volume bubble (from the address bar button; this tab only, 0% - 600%)
 function volumePanel(d) {
   const max = d.volumeMax;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -1020,7 +1020,7 @@ function volumePanel(d) {
   const r = el('input'); r.type = 'range'; r.min = 0; r.max = max; r.step = 10; r.value = d.volume;
   r.setAttribute('aria-label', 'Ses düzeyi');
   const sc = el('div', 'vs');
-  // Etiketler kaydiricinin gercek konumlarina (tutamac yaricapi 8px iceriden) yerlestirilir
+  // Labels are placed at the slider's real positions (inset by the 8px thumb radius)
   for (const x of [0, 100, 200, 400, 600].filter((x) => x <= max)) {
     const sp = el('span', null, '%' + x);
     sp.style.left = `calc(8px + (100% - 16px) * ${x / max})`;
@@ -1057,7 +1057,7 @@ function volumePanel(d) {
   return panel;
 }
 
-// ---------- Uzantilar paneli (yapboz dugmesi): Chrome gibi; tikla = calistir, raptiye = arac cubugunda goster/gizle
+// ---------- Extensions panel (puzzle button): like Chrome; click = run, pin = show/hide in toolbar
 const PIN = '<svg viewBox="0 0 24 24"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>';
 const PIN_OFF = '<svg viewBox="0 0 24 24"><path d="M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4h1c.55 0 1-.45 1-1s-.45-1-1-1z"/></svg>';
 function extensionsPanel(d) {
@@ -1108,7 +1108,7 @@ function openSub(row, items) {
   pop.appendChild(sub);
   const mr = main.getBoundingClientRect(), rr = row.getBoundingClientRect();
   const w = sub.offsetWidth, h = sub.offsetHeight;
-  let x = mr.left - w + 4;                       // sola ac (menu sag kenarda)
+  let x = mr.left - w + 4;                       // open to the left (menu is at the right edge)
   if (x < 4) x = Math.min(mr.right - 4, innerWidth - w - 4);
   let y = rr.top - 8;
   if (y + h > innerHeight - 4) y = Math.max(4, innerHeight - h - 4);
@@ -1152,13 +1152,13 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && chooser && chooser.selected) { e.preventDefault(); send('chooser-select', chooser.selected); }
 });
 
-// ================================================================ Cihaz secici balonu (adres cubugunun altindan acilir)
+// ================================================================ Device chooser bubble (opens below the address bar)
 let chooser = null;   // { data, selected }
 const CHOOSER_TITLE = {
   serial: 'bir seri bağlantı noktasına bağlanmak istiyor', hid: 'bir HID cihazına bağlanmak istiyor',
   usb: 'bir USB cihazına bağlanmak istiyor', bluetooth: 'bir Bluetooth cihazıyla eşleşmek istiyor'
 };
-// Balon iskeleti: baslik (+ istege bagli simge) ve x, govde, alt dugmeler
+// Bubble skeleton: title (+ optional icon) and x, body, bottom buttons
 function bubbleShell(title, icon, onClose) {
   pop.replaceChildren();
   const backdrop = document.createElement('div');
@@ -1179,7 +1179,7 @@ function bubbleShell(title, icon, onClose) {
   pop.appendChild(box);
   return { box, body, foot };
 }
-// Chrome gibi: adres cubugunun solundaki site simgesinin hemen alti
+// Like Chrome: right below the site icon at the left of the address bar
 function placeBubble(box) {
   const o = $('lead').getBoundingClientRect();
   box.style.left = Math.max(8, Math.min(o.left - 8, innerWidth - box.offsetWidth - 8)) + 'px';
@@ -1222,7 +1222,7 @@ function drawChooser() {
   placeBubble(box);
 }
 
-// ---------- Izin / onay balonu (konum, kamera, bildirim, uzanti ekleme...)
+// ---------- Permission / confirm bubble (location, camera, notifications, extension install...)
 let prompt = null;
 function answerPrompt(answer) {
   if (!prompt) return;
@@ -1253,7 +1253,7 @@ browserApi.onPromptClose(() => { if (prompt) { prompt = null; pop.hidden = true;
 
 browserApi.onChooserOpen((d) => { menu = null; chooser = { data: d, selected: null }; pop.hidden = false; drawChooser(); });
 browserApi.onChooserData((d) => { if (chooser) { chooser.data = d; drawChooser(); } });
-window.addEventListener('blur', () => { /* pencere odak kaybinda ana surec menuyu kapatir */ });
+window.addEventListener('blur', () => { /* main process closes the menu when the window loses focus */ });
 
 const anchorOf = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.bottom, right: r.right }; };
 $('menu').onclick = (e) => send('menu', { ...anchorOf(e.currentTarget), kind: 'main' });

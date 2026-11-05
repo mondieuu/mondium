@@ -1,27 +1,27 @@
 'use strict';
-// Widevine VMP imzasi (castLabs EVS). Netflix, Disney+, Exxen, BluTV, Spotify gibi servisler
-// imzasiz tarayicida DRM'li videoyu oynatmayi reddedebilir. Imza ucretsiz bir castLabs EVS hesabi ister:
-// bir kez "vmp-hesap-olustur.bat" calistirmak yeterli.
-// Windows'ta imza, exe'nin kaynaklari (ikon vb.) yazildiktan SONRA atilmali -> afterSign.
-// macOS'ta kod imzasindan ONCE atilmali -> afterPack.
+// Widevine VMP signing (castLabs EVS). Services like Netflix, Disney+, Exxen, BluTV, Spotify
+// may refuse DRM video in an unsigned browser. Signing needs a free castLabs EVS account:
+// running "vmp-create-account.bat" once is enough.
+// On Windows, sign AFTER the exe resources (icon etc.) are written -> afterSign.
+// On macOS, sign BEFORE code signing -> afterPack.
 const { execFileSync } = require('child_process');
 
 function trySign(dir) {
   for (const py of ['python', 'py', 'python3']) {
     try {
       execFileSync(py, ['-m', 'castlabs_evs.vmp', 'sign-pkg', dir], { stdio: 'inherit' });
-      console.log('  • Widevine VMP imzasi tamam');
+      console.log('  • Widevine VMP signing done');
       return;
     } catch (e) {
-      if (e && e.code === 'ENOENT') continue;   // bu python komutu yok, digerini dene
+      if (e && e.code === 'ENOENT') continue;   // this python command doesn't exist, try the next
       break;
     }
   }
-  console.warn('  • UYARI: Widevine VMP imzasi atilamadi. DRM\'li siteler (Netflix vb.) video oynatmayabilir.');
-  console.warn('    Duzeltmek icin bir kez "vmp-hesap-olustur.bat" calistirin, sonra kurulum dosyasini yeniden olusturun.');
+  console.warn('  • WARNING: Widevine VMP signing failed. DRM sites (Netflix etc.) may not play video.');
+  console.warn('    To fix, run "vmp-create-account.bat" once, then rebuild the installer.');
 }
 
-// Ayni dosya iki kancada kullanilir: Windows -> afterSign, macOS -> afterPack
+// The same file serves two hooks: Windows -> afterSign, macOS -> afterPack
 function make(platformWanted) {
   return async function (context) {
     if (context.electronPlatformName === platformWanted) trySign(context.appOutDir);

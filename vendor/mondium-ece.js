@@ -1,6 +1,6 @@
-// Mondium: uBlock Origin sayfalarinin ilk betigi (tools/ublock-guncelle.js her HTML'in basina ekler).
-// Eksik chrome.* API'lerini electron-chrome-extensions'in ana surecteki uygulamasina baglar (kopru: mv2-bridge.js).
-// Var olan (Electron'un kendi) API'lere dokunmaz; sadece eksikleri ekler ya da genisletir.
+// Mondium: first script of uBlock Origin pages (tools/ublock-guncelle.js prepends it to every HTML file).
+// Wires missing chrome.* APIs to electron-chrome-extensions' main process implementation (bridge: mv2-bridge.js).
+// Leaves existing (Electron's own) APIs alone; only adds or extends missing ones.
 (() => {
   'use strict';
   const b = self.__mondiumCrx;
@@ -22,13 +22,13 @@
     hasListeners: () => false
   });
   const setting = () => ({ get: (_d, cb) => { const r = { value: false, levelOfControl: 'not_controllable' }; if (cb) cb(r); return Promise.resolve(r); }, set: (_d, cb) => { if (cb) cb(); return Promise.resolve(); }, clear: (_d, cb) => { if (cb) cb(); return Promise.resolve(); }, onChange: { addListener() {}, removeListener() {} } });
-  // Yeni Chromium 'browser' adli ayri bir nesne de koyuyor; uBO onu varsa chrome'un yerine kullaniyor (vapi.js) ve
-  // eklenen API'ler kayboluyordu. Ayri 'browser' kaldirilir; uBO 'browser = chrome' yapar ve bu nesneyi kullanir.
+  // Newer Chromium also defines a separate 'browser' object; uBO prefers it over chrome (vapi.js) and the
+  // added APIs were lost. The separate 'browser' is removed; uBO then sets 'browser = chrome' and uses this object.
   if (self.browser && self.browser !== self.chrome) { try { delete self.browser; } catch {} if (self.browser) { try { self.browser = undefined; } catch {} } }
   const put = (name, value) => { try { Object.defineProperty(chrome, name, { value, configurable: true, enumerable: true, writable: true }); } catch {} };
   const has = (name) => !!chrome[name];
 
-  // Simge resmi (ImageData) ana surece metin olarak gider
+  // Icon image (ImageData) is sent to the main process as a string
   const img64 = (d) => { const c = document.createElement('canvas'); c.width = d.width; c.height = d.height; c.getContext('2d').putImageData(d, 0, 0); return c.toDataURL(); };
   if (manifest.browser_action && !has('browserAction')) {
     put('browserAction', {
@@ -46,7 +46,7 @@
       openPopup: call('browserAction.openPopup'), onClicked: ev('browserAction.onClicked')
     });
   }
-  // Sekmeler: Electron'un kendi executeScript/insertCSS/sendMessage'i korunur, gerisi eklenir
+  // Tabs: Electron's own executeScript/insertCSS/sendMessage are kept, the rest are added
   const tabsBase = chrome.tabs || {};
   put('tabs', Object.assign({}, tabsBase, {
     create: call('tabs.create'), get: call('tabs.get'), getCurrent: call('tabs.getCurrent'),
@@ -101,14 +101,14 @@
   });
   if (chrome.storage && chrome.storage.local) {
     const st = chrome.storage;
-    // Electron'da storage.managed (yonetici ayarlari) yerel deponun TAMAMINI donduruyor. uBO acilista bunu
-    // 'cachedManagedStorage' olarak yerel depoya geri yaziyor: depo her acilista kendi kopyasini icerip katlanarak
-    // buyuyordu (3 acilista 158 MB, acilis 10+ sn). managed her zaman bos cevap verir; sync yerel depoya gider.
-    // storage.session'a dokunulmaz (Electron'da yok; uBO kendi bellek ici yedegini kullanir).
+    // In Electron storage.managed (admin policy) returns the ENTIRE local store. uBO writes it back at startup as
+    // 'cachedManagedStorage': each launch the store contained a copy of itself and grew exponentially
+    // (158 MB after 3 launches, 10+ s startup). managed always answers empty; sync maps to local.
+    // storage.session is left alone (missing in Electron; uBO uses its own in-memory fallback).
     const emptyGet = function (_k, cb) { if (typeof _k === 'function') cb = _k; if (cb) cb({}); return Promise.resolve({}); };
     const empty = { get: emptyGet, getBytesInUse: (_k, cb) => { if (typeof _k === 'function') cb = _k; if (cb) cb(0); return Promise.resolve(0); }, onChanged: { addListener() {}, removeListener() {} } };
     const setp = (o, k, v) => { try { Object.defineProperty(o, k, { value: v, configurable: true, enumerable: true, writable: true }); } catch {} try { if (o[k] !== v) o[k] = v; } catch {} };
-    // chrome.storage nesnesi her zaman degistirilemiyor; once icinden, olmazsa managed.get'in kendisi degistirilir
+    // chrome.storage can't always be modified; replace managed first, else replace managed.get itself
     setp(st, 'managed', empty);
     if (st.managed !== empty && st.managed) setp(st.managed, 'get', emptyGet);
     if (st.sync !== st.local) setp(st, 'sync', st.local);

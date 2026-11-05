@@ -15,7 +15,7 @@
   * { box-sizing:border-box; margin:0; padding:0; }
   html, body { height:100%; background:var(--bg); color:var(--text); font-family:"Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
   main { display:flex; flex-direction:column; align-items:center; padding-top:20vh; }
-  /* Baslik: uzerine gelince kalem cikar, tiklayinca yerinde duzenlenir */
+  /* Title: a pencil appears on hover, click to edit in place */
   .head { position:relative; min-height:84px; margin-bottom:26px; display:flex; align-items:center; justify-content:center; max-width:90vw; }
   h1 { color:var(--dim); font-size:60px; font-weight:400; letter-spacing:-2px; user-select:none; outline:none; white-space:nowrap;
     overflow:hidden; text-overflow:ellipsis; max-width:80vw; border-radius:10px; padding:0 10px; }
@@ -34,7 +34,7 @@
   svg { width:20px; height:20px; fill:var(--icon); flex:none; }
   #q { flex:1; height:100%; border:0; outline:none; background:none; color:var(--text); font-size:16px; }
 
-  /* ---------- Kisayollar ---------- */
+  /* ---------- Shortcuts ---------- */
   #tiles { display:grid; grid-template-columns:repeat(6, 112px); gap:4px 8px; margin-top:32px; justify-content:center; }
   @media (max-width: 760px) { #tiles { grid-template-columns:repeat(4, 112px); } }
   .tile { position:relative; width:112px; height:112px; border-radius:8px; display:flex; flex-direction:column; align-items:center;
@@ -52,7 +52,7 @@
   .tools button:hover { background:var(--hover); }
   .tools svg { width:15px; height:15px; fill:var(--dim); }
 
-  /* ---------- Kisayol ekle / duzenle penceresi ---------- */
+  /* ---------- Add / edit shortcut dialog ---------- */
   #modal { position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:10; }
   #modal[hidden] { display:none; }
   .dlg { width:min(420px, 92vw); background:var(--modal); border-radius:12px; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,.3); }
@@ -112,7 +112,7 @@ const LETTER_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#9334e6', '#
 let data = { shortcuts: [], searchUrl: decodeURIComponent(location.hash.slice(1)) || 'https://www.google.com/search?pws=0&q=', searchName: 'Google', theme: null };
 const MAX = 12;
 
-// ---------- Arama
+// ---------- Search
 $('f').addEventListener('submit', (e) => {
   e.preventDefault();
   const v = $('q').value.trim();
@@ -121,7 +121,7 @@ $('f').addEventListener('submit', (e) => {
   location.href = looksUrl ? (/^https?:/i.test(v) ? v : 'https://' + v) : data.searchUrl + encodeURIComponent(v);
 });
 
-// ---------- Tema
+// ---------- Theme
 function applyTheme(t) {
   const st = document.documentElement.style;
   if (!t) { ['--bg', '--accent', '--box', '--modal'].forEach((n) => st.removeProperty(n)); return; }
@@ -131,7 +131,7 @@ function applyTheme(t) {
   else { st.removeProperty('--box'); st.removeProperty('--modal'); }
 }
 
-// ---------- Kisayollar
+// ---------- Shortcuts
 function hostName(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
 function letterFor(s) {
   const name = (s.title || hostName(s.url)).trim();
@@ -146,7 +146,7 @@ function letterFor(s) {
 }
 
 let dragFrom = -1;
-// ---------- Baslik (kullanici degistirebilir; bos birakilirsa gizlenir)
+// ---------- Title (user-editable; hidden if left empty)
 const titleEl = $('title');
 let titleEditing = false;
 function startTitleEdit() {
@@ -216,7 +216,7 @@ function render() {
   $('tiles').replaceChildren(...tiles);
 }
 
-// ---------- Ekle / duzenle penceresi
+// ---------- Add / edit dialog
 let editing = -1;
 function openModal(i) {
   editing = i;
@@ -244,7 +244,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') saveModal();
 });
 
-// ---------- Baslat
+// ---------- Startup
 if (api) {
   api.onUpdate((d) => { data = d; render(); });
   api.get().then((d) => { data = d; render(); }).catch(() => render());

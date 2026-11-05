@@ -1,8 +1,8 @@
-// Mondium resim buyutme (Imagus benzeri, yerlesik). Ana surec ayar acikken her sayfaya ayrik dunyada (1014) ekler.
-// Fare bir resmin ya da resim baglantisinin uzerinde kisa sure durunca buyuk hali imlecin yanindaki genis tarafta acilir.
-// Esc, tiklama, kaydirma veya fare ayrilinca kapanir.
-// Z: resmi ekrana sabitler (Imagus gibi): ortada ekrana sigar, tekerlek imlecin oldugu noktaya dogru buyutur/kucultur,
-// surukleyince kayar, cift tik %100 / sigdir arasinda gecer. Z, Esc ya da bosluga tiklamak kapatir. Kapatilinca (ayar) tum dinleyiciler kaldirilir; sizinti yok.
+// Mondium image zoom (built-in, Imagus-like). When enabled the main process injects it into every page in isolated world 1014.
+// Hovering briefly over an image or image link opens the large version on the wider side of the cursor.
+// Closes on Esc, click, scroll or when the mouse leaves.
+// Z: pins the image to the screen (like Imagus): fit to screen in the center, wheel zooms toward the cursor point,
+// drag pans, double-click toggles 100% / fit. Z, Esc or clicking empty space closes. When disabled (setting) all listeners are removed; no leaks.
 (() => {
   const KEY = Symbol.for('mondium.zoom');
   if (window[KEY]) { window[KEY].on(); return; }
@@ -11,13 +11,13 @@
   const VID_EXT = /\.(mp4|webm|gifv)(?:[?#]|$)/i;
   const DELAY = 220, PAD = 12;
 
-  // Kucuk resimden buyuk resim adresi (yaygin siteler); bilinmiyorsa null
+  // Large image URL from a thumbnail (common sites); null if unknown
   function upgrade(src) {
     let u;
     try { u = new URL(src, location.href); } catch { return null; }
     const h = u.hostname;
     if (/(^|\.)wikimedia\.org$/.test(h) && u.pathname.includes('/thumb/')) {
-      // Kucuk resim thumb.wikimedia.org veya upload.wikimedia.org'dan gelir; asli hep upload'da
+      // Thumbnails come from thumb.wikimedia.org or upload.wikimedia.org; the original is always on upload
       return 'https://upload.wikimedia.org' + u.pathname.replace('/thumb/', '/').replace(/\/[^/]+$/, '');
     }
     if (h === 'pbs.twimg.com' && u.pathname.startsWith('/media/')) { u.searchParams.set('name', 'orig'); return u.href; }
@@ -36,7 +36,7 @@
     }
     return null;
   }
-  // srcset icindeki en buyuk aday
+  // Largest candidate in srcset
   function bestSrcset(img) {
     const set = img.getAttribute('srcset') || (img.parentElement && img.parentElement.tagName === 'PICTURE'
       ? [...img.parentElement.querySelectorAll('source[srcset]')].map((x) => x.getAttribute('srcset')).join(',') : '');
@@ -48,17 +48,17 @@
     }
     return best ? new URL(best, location.href).href : null;
   }
-  // Bir baglanti gercekten resim/video dosyasina mi gidiyor? (Vikipedi'deki "File:Kedi.jpg" gibi sayfalar degil)
+  // Does a link really point to an image/video file? (not pages like Wikipedia's "File:Cat.jpg")
   function mediaLink(href) {
     let u;
     try { u = new URL(href); } catch { return null; }
-    if (!/^https?:$/.test(u.protocol) || /\/[^/]*:[^/]*$/.test(u.pathname)) return null;   // "Dosya:..." / "File:..." sayfalari
+    if (!/^https?:$/.test(u.protocol) || /\/[^/]*:[^/]*$/.test(u.pathname)) return null;   // "Dosya:..." / "File:..." pages
     if (VID_EXT.test(u.pathname)) return { url: u.href.replace(/\.gifv(?=[?#]|$)/i, '.mp4'), video: true, sure: true };
     if (IMG_EXT.test(u.pathname)) return { url: upgrade(u.href) || u.href, sure: true };
     return null;
   }
-  // Ogeden gosterilecek medya adaylari, en iyisinden baslayarak: { url, video, sure, next }
-  // "sure": buyuk oldugu kesin. Bir aday yuklenemezse siradaki denenir.
+  // Media candidates to show for an element, best first: { url, video, sure, next }
+  // "sure": known to be large. If a candidate fails to load, the next one is tried.
   function pick(el) {
     if (!el || el.nodeType !== 1) return null;
     const img = el.tagName === 'IMG' ? el : null;
@@ -66,7 +66,7 @@
     let small = null;
     if (img && img.currentSrc && !/^data:/.test(img.currentSrc)) {
       small = img.getBoundingClientRect();
-      if (small.width < 24 || small.height < 24) return null;   // simge, emoji vb.
+      if (small.width < 24 || small.height < 24) return null;   // icon, emoji etc.
       const up = upgrade(img.currentSrc);
       if (up && up !== img.currentSrc) list.push({ url: up, sure: true });
     }
@@ -82,7 +82,7 @@
     return list[0] || null;
   }
 
-  // ---- Gosterim katmani (kapali golge kok: sitenin stilleri karismaz)
+  // ---- Display layer (closed shadow root: site styles don't leak in)
   const host = document.createElement('div');
   host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:none';
   const root = host.attachShadow({ mode: 'closed' });
@@ -103,7 +103,7 @@
   const box = root.querySelector('.box'), spin = root.querySelector('.spin'), bd = root.querySelector('.bd'), pct = root.querySelector('.pct');
 
   let target = null, timer = 0, media = null, mx = 0, my = 0, active = false;
-  // Sabitlenmis (Z) gorunum: olcek ve resmin sol ust kosesinin ekrandaki yeri
+  // Pinned (Z) view: scale and on-screen position of the image's top-left corner
   let pinned = false, wantPin = false, sc = 1, fit = 1, bx = 0, by = 0, drag = null, pctTimer = 0;
 
   function place() {
@@ -111,7 +111,7 @@
     const nw = media.naturalWidth || media.videoWidth, nh = media.naturalHeight || media.videoHeight;
     if (!nw || !nh) return;
     const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
-    // Imlecin solunda mi saginda mi daha cok yer var; resim o tarafa sigdirilir
+    // Fit the image on whichever side of the cursor has more room
     const left = mx - PAD * 2, right = vw - mx - PAD * 2;
     const side = right >= left ? 'r' : 'l';
     const room = Math.max(left, right);
@@ -138,7 +138,7 @@
     const ready = () => {
       if (media !== m) return;
       const nw = m.naturalWidth || m.videoWidth;
-      // Ayni boyuttaki resmi bosuna buyutme
+      // Don't bother zooming an image that's already that size
       if (!p.sure && p.small && nw <= p.small.width * 1.25 && (m.naturalHeight || m.videoHeight) <= p.small.height * 1.25) { hide(); return; }
       box.replaceChildren(m); place();
       if (wantPin) pin();
@@ -153,7 +153,7 @@
     m.src = p.url;
   }
 
-  // ---- Z: sabitle ve yakinlastir
+  // ---- Z: pin and zoom
   const dims = () => [media.naturalWidth || media.videoWidth, media.naturalHeight || media.videoHeight];
   function draw() {
     const [nw, nh] = dims();
@@ -173,7 +173,7 @@
     draw();
   }
   function pin() {
-    if (!media || box.style.display !== 'block') { wantPin = true; return; }   // resim henuz yukleniyor: gelince sabitle
+    if (!media || box.style.display !== 'block') { wantPin = true; return; }   // image still loading: pin when it arrives
     wantPin = false; pinned = true;
     host.classList.add('pin');
     host.style.pointerEvents = 'auto';
@@ -187,7 +187,7 @@
     host.style.pointerEvents = 'none';
     bd.style.display = 'none'; pct.style.display = 'none';
   }
-  // Tekerlek: imlecin altindaki nokta yerinde kalacak sekilde olcek degisir
+  // Wheel: rescale keeping the point under the cursor fixed
   host.addEventListener('wheel', (e) => {
     if (!pinned) return;
     e.preventDefault(); e.stopPropagation();

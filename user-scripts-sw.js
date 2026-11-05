@@ -1,11 +1,11 @@
 'use strict';
-// Mondium uyumluluk katmani (uzanti service worker'i tarafi).
-// Electron'da Chrome'un chrome.userScripts API'si yok. Imagus Reborn gibi uzantilar sayfaya kodlarini bununla ekliyor;
-// API olmayinca calismiyor ve her acilista ayar sayfasini aciyordu. Bu dosya API'yi uzantiya taklit eder,
-// asil isi ana surecteki user-scripts.js yapar. Sadece uzanti service worker'larinda calisir, web sitelerinde degil.
+// Mondium compatibility layer (extension service worker side).
+// Electron lacks Chrome's chrome.userScripts API. Extensions like Imagus Reborn inject their code with it;
+// without it they broke and opened their options page on every launch. This file emulates the API for the extension;
+// the real work is done by user-scripts.js in the main process. Runs only in extension service workers, not on websites.
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Preload'un kendi ortaminda "location" yok; adres, worker'in kendi dunyasindan okunur.
+// The preload's own context has no "location"; the URL is read from the worker's own world.
 let isExtension = false;
 try { isExtension = process.type === 'service-worker' && contextBridge.executeInMainWorld({ func: () => globalThis.location.protocol }) === 'chrome-extension:'; } catch {}
 if (isExtension) {
@@ -19,22 +19,22 @@ if (isExtension) {
   contextBridge.executeInMainWorld({ func: mainWorld });
 }
 
-// Uzantinin kendi dunyasinda calisir (disaridaki degiskenleri goremez, kendi basina yazilmistir)
+// Runs in the extension's own world (cannot see outer variables, written to be self-contained)
 function mainWorld() {
   const bridge = globalThis.__mondiumUS;
   const c = globalThis.chrome;
   if (!bridge || !c || !c.runtime) return;
   const man = (c.runtime.getManifest && c.runtime.getManifest()) || {};
   const perms = man.permissions || [];
-  if (!perms.includes('userScripts')) return;          // sadece bu izni isteyen uzantilar
+  if (!perms.includes('userScripts')) return;          // only extensions requesting this permission
   const done = (p, cb) => { if (typeof cb === 'function') { p.then((v) => cb(v), () => cb()); return undefined; } return p; };
   const fail = (r) => { if (r && r.error) throw new Error(r.error); return r; };
 
-  // ---- Kullanici betiklerinden gelen mesajlar (chrome.runtime.onUserScriptMessage)
+  // ---- Messages from user scripts (chrome.runtime.onUserScriptMessage)
   const listeners = new Set();
   const queue = [];
   function dispatch(reqId, msg, sender) {
-    if (!listeners.size) {   // uzanti dinleyicisini henuz eklemediyse kisa sure beklet
+    if (!listeners.size) {   // hold briefly if the extension hasn't added its listener yet
       queue.push([reqId, msg, sender]);
       setTimeout(() => { const i = queue.findIndex((q) => q[0] === reqId); if (i >= 0) { queue.splice(i, 1); bridge.reply(reqId, undefined); } }, 4000);
       return;
@@ -58,7 +58,7 @@ function mainWorld() {
     hasListener(fn) { return listeners.has(fn); },
     hasListeners() { return listeners.size > 0; }
   };
-  try { Object.defineProperty(c.runtime, 'onUserScriptMessage', { value: onUserScriptMessage, configurable: true, writable: true }); } catch (e) { console.warn('onUserScriptMessage eklenemedi', e); }
+  try { Object.defineProperty(c.runtime, 'onUserScriptMessage', { value: onUserScriptMessage, configurable: true, writable: true }); } catch (e) { console.warn('Could not add onUserScriptMessage', e); }
 
   // ---- chrome.userScripts
   if (!c.userScripts) {
@@ -74,13 +74,13 @@ function mainWorld() {
     };
   }
 
-  // ---- chrome.history yoksa zararsiz bos surum (gecmise ekleme Mondium'un kendi gecmisine karismaz)
+  // ---- Harmless stub if chrome.history is missing (adding to history never touches Mondium's own history)
   if (perms.includes('history') && !c.history) {
     const nop = (a, cb) => done(Promise.resolve(undefined), typeof a === 'function' ? a : cb);
     c.history = { addUrl: nop, deleteUrl: nop, getVisits: (a, cb) => done(Promise.resolve([]), cb), search: (a, cb) => done(Promise.resolve([]), cb) };
   }
 
-  // ---- Sekmeye mesaj: uzantinin gercek icerik betigi yok, mesajlar kullanici betigi dunyasina gider
+  // ---- Message to tab: the extension has no real content script, so messages go to the user script world
   if (!(man.content_scripts && man.content_scripts.length)) {
     const patchTabs = () => {
       if (!c.tabs || c.tabs.__mondiumUS) return;
@@ -93,6 +93,6 @@ function mainWorld() {
       } catch {}
     };
     patchTabs();
-    setTimeout(patchTabs, 0);   // diger preload'lar chrome.tabs'i sonradan degistirdiyse tekrar
+    setTimeout(patchTabs, 0);   // retry in case other preloads replaced chrome.tabs later
   }
 }

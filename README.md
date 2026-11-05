@@ -9,6 +9,8 @@
   No accounts, no telemetry, no bloat. Just a fast, quiet browser that respects your RAM and your privacy.
 </p>
 
+<p align="center"><a href="#türkçe">Türkçe açıklama aşağıda ↓</a></p>
+
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2f2f35">
   <img alt="Engine: Chromium" src="https://img.shields.io/badge/engine-Chromium-2f2f35">
@@ -25,7 +27,7 @@ Modern browsers ship with sync, telemetry, shopping assistants, AI sidebars, spo
 - **Debloated.** No sign-in, sync, crash reporting, Safe Browsing pings, translation service, Privacy Sandbox, Topics or FLEDGE. No `X-Client-Data` header.
 - **Light on memory.** Smart process grouping, sleeping background tabs, and a UI drawn in a single view with no extra processes.
 - **Private by default.** Real uBlock Origin built in, DNS-over-HTTPS, Do Not Track + Global Privacy Control, WebRTC IP leak protection.
-- **Minimalist design.** Chrome-familiar layout, without the logos. 11 themes, pitch-black mode, vertical tabs.
+- **Minimalist design.** Chrome-familiar layout, without the logos. 11 themes, pitch-black mode, vertical tabs. English and Turkish UI.
 - **Vanilla JS.** The whole UI is plain HTML, CSS and JavaScript. No framework, no bundler, no TypeScript build step.
 
 ## Screenshots
@@ -42,7 +44,7 @@ Modern browsers ship with sync, telemetry, shopping assistants, AI sidebars, spo
 |---|---|
 | ![Protected sites](docs/settings-protected-sites.png) | ![Clear browsing data](docs/clear-browsing-data.png) |
 
-> The interface is currently in Turkish.
+> The interface is available in **English** and **Turkish** (Settings → Appearance → Language).
 
 ## Features
 
@@ -101,7 +103,7 @@ npm install
 npm start
 ```
 
-Build the Windows installer (`dist/Mondium-Setup-<version>.exe`):
+Build the Windows installer (`dist/Mondium-Setup-<version>.exe`), or just run `build-installer.bat`:
 
 ```bash
 npm run dist:win
@@ -110,11 +112,11 @@ npm run dist:win
 Update the bundled uBlock Origin to the latest release:
 
 ```bash
-npm run ublock-guncelle
+npm run update-ublock
 ```
 
 ### Optional: streaming services
-Netflix, Disney+ and similar services require a production Widevine VMP signature. Create a free [castLabs EVS](https://github.com/castlabs/electron-releases/wiki/EVS) account once (`vmp-hesap-olustur.bat`). After that, installers are signed automatically.
+Netflix, Disney+ and similar services require a production Widevine VMP signature. Create a free [castLabs EVS](https://github.com/castlabs/electron-releases/wiki/EVS) account once (`vmp-create-account.bat`). After that, installers are signed automatically.
 
 ## Project structure
 
@@ -126,6 +128,8 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 | `settings.html`, `newtab.html`, `history.html`, `downloads.html`, `extensions.html` | Internal pages |
 | `volume.js`, `hoverzoom.js`, `reader.js` | Built-in tools injected into isolated worlds |
 | `page-preload.js` | Small preload for all pages |
+| `i18n.js` | English translations of the UI (Turkish is the source language) |
+| `bookmark-import.js` | Bookmark import from other browsers |
 | `vendor/ublock` | Bundled uBlock Origin |
 
 ## Privacy note
@@ -137,3 +141,42 @@ Mondium has no server and collects nothing. All data (settings, history, downloa
 [GPL-3.0](LICENSE). Mondium bundles [uBlock Origin](https://github.com/gorhill/uBlock) (GPL-3.0) and is built with [Electron](https://www.electronjs.org/) / [castLabs ECS](https://github.com/castlabs/electron-releases), [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell) and [Ghostery adblocker](https://github.com/ghostery/adblocker).
 
 Mondium is not affiliated with Google or the Chromium project.
+
+---
+
+## Türkçe
+
+**Mondium**, Chromium tabanlı, sade ve gereksiz her şeyden arındırılmış (debloated) bir masaüstü tarayıcı. Hesap yok, telemetri yok, şişkinlik yok: RAM'inize ve gizliliğinize saygı duyan hızlı, sessiz bir tarayıcı. Arayüz **Türkçe** ve **İngilizce** (Ayarlar → Görünüm → Dil).
+
+### Neden Mondium
+- **Arındırılmış:** Oturum açma, senkronizasyon, çökme raporu, Safe Browsing pingleri, çeviri servisi, Privacy Sandbox, Topics ve FLEDGE yok. `X-Client-Data` başlığı yok.
+- **Az RAM:** Akıllı süreç gruplama, arka plan sekmelerini uyutma ve ek süreç açmayan tek görünümlü arayüz.
+- **Varsayılan olarak gizli:** Gerçek uBlock Origin içinde gelir; DNS-over-HTTPS, Do Not Track + Global Privacy Control, WebRTC IP sızıntısı koruması.
+- **Sade tasarım:** Chrome'a benzeyen düzen, logolar olmadan. 11 tema, tam siyah (pitch black) mod, dikey sekmeler.
+- **Saf JavaScript:** Arayüzün tamamı düz HTML, CSS ve JavaScript. Framework, bundler ya da TypeScript yok.
+
+### Öne çıkanlar
+- **Korunan siteler:** Gezinti verilerini temizlerken seçtiğiniz sitelerde oturumunuz açık kalır. Temizlik motor üzerinden çerez ve depolama anahtarı bazında yapılır, sonuç yeniden okunarak doğrulanır.
+- **Bellek:** Normal siteler süreç paylaşır; giriş, ödeme ve korunan siteler ayrı süreçte kalır. 6 popüler sitede 21 süreç yerine 8 süreç, 4,6 GB yerine 2,8 GB çalışma belleği. Tam site izolasyonu tek tıkla açılır.
+- **Yerleşik araçlar:** Ses yükseltme (sekme başına %600'e kadar), resim büyütme (`Z` ile sabitle, tekerlekle yakınlaştır), okuma modu (`F9`), resim içinde resim.
+- **Yer işareti aktarma:** Chrome, Edge, Brave, Opera, Vivaldi, Yandex veya Firefox'tan tek tıkla ya da HTML dosyasından. Dosyalar sadece bu bilgisayarda okunur.
+- **Uyumluluk:** Chrome Web Mağazası uzantıları, Widevine DRM, WebHID / WebUSB / Web Serial / Web Bluetooth, yerleşik PDF görüntüleyici.
+
+### İndir
+**[⬇ En son Mondium'u indir](https://github.com/mondieuu/mondium/releases/latest)** (Windows 10/11, 64 bit): *Assets* altındaki `Mondium-Setup-<sürüm>.exe` dosyası. Kurulum Chrome'unki gibi: tek tık, yönetici izni gerekmez, bitince Mondium açılır. **Ayarlar → Uygulamalar → Varsayılan uygulamalar** bölümünden varsayılan tarayıcı yapabilirsiniz.
+
+> Kurulum dosyası henüz kod imzalı değil, Windows SmartScreen uyarı verebilir. **Ek bilgi → Yine de çalıştır** seçeneğine tıklayın.
+
+### Kaynaktan derleme
+```bash
+git clone https://github.com/mondieuu/mondium.git
+cd mondium
+npm install
+npm start
+```
+Kurulum dosyası için `npm run dist:win` ya da `build-installer.bat`.
+
+### Gizlilik notu
+Mondium'un sunucusu yok ve hiçbir veri toplamaz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda `%APPDATA%\Mondium` klasöründe kalır.
+
+Lisans: [GPL-3.0](LICENSE). Mondium, Google veya Chromium projesiyle bağlantılı değildir.

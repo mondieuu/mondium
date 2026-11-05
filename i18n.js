@@ -666,7 +666,7 @@
     const t = norm(text);
     if (!t || (!/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(t) && t[0] !== '%')) return text;
     let r = translateCore(t);
-    if (r == null) {   // 'Sayfada bul...' / 'Koru:' gibi: sondaki ... ya da : olmadan dene
+    if (r == null) {   // e.g. 'Sayfada bul...' / 'Koru:': retry without the trailing ... or :
       const m = /^(.*?)(\.\.\.|…|:)$/.exec(t);
       if (m && m[1]) { const b = translateCore(m[1].trim()); if (b != null) r = b + m[2]; }
     }

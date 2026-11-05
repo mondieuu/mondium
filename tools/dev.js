@@ -1,14 +1,14 @@
 'use strict';
-// Gelistirme modunda Mondium'u "Mondium.exe" olarak baslatir.
-// Duz electron.exe ile calisinca Gorev Yoneticisi'nde "Electron" yaziyor ve Electron simgesi cikiyordu.
-// Electron klasorune bir kez Mondium.exe kopyalanir, adi ve simgesi degistirilir (Electron surumu degisince yenilenir).
-// Kurulum dosyasindaki (npm run dist:win) surumde bu zaten electron-builder tarafindan yapiliyor.
+// Starts Mondium as "Mondium.exe" in development mode.
+// With plain electron.exe, Task Manager showed "Electron" and the Electron icon.
+// Mondium.exe is copied into the Electron folder once, with its name and icon changed (refreshed when Electron changes).
+// In the installer build (npm run dist:win) electron-builder already does this.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
 const root = path.join(__dirname, '..');
-const electronExe = require('electron');            // node_modules/electron/dist/electron.exe yolu
+const electronExe = require('electron');            // path to node_modules/electron/dist/electron.exe
 let exe = electronExe;
 
 if (process.platform === 'win32') {
@@ -19,16 +19,16 @@ if (process.platform === 'win32') {
   const stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs].join('|');
   try {
     if (!fs.existsSync(target) || !fs.existsSync(stampFile) || fs.readFileSync(stampFile, 'utf8') !== stamp) {
-      console.log('Mondium.exe hazirlaniyor (bir kez)...');
+      console.log('Preparing Mondium.exe (one time)...');
       const ResEdit = require('resedit');
       const pe = ResEdit.NtExecutable.from(fs.readFileSync(electronExe), { ignoreCert: true });
       const res = ResEdit.NtExecutableResource.from(pe);
-      // Simge
+      // Icon
       const groups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
       const ico = ResEdit.Data.IconFile.from(fs.readFileSync(icon));
       const g = groups[0] || { id: 1, lang: 1033 };
       ResEdit.Resource.IconGroupEntry.replaceIconsForResource(res.entries, g.id, g.lang, ico.icons.map((i) => i.data));
-      // Gorev Yoneticisi'nde gorunen ad
+      // Name shown in Task Manager
       const vi = ResEdit.Resource.VersionInfo.fromEntries(res.entries)[0];
       if (vi) {
         const langs = vi.getAllLanguagesForStringValues();
@@ -43,7 +43,7 @@ if (process.platform === 'win32') {
     }
     exe = target;
   } catch (e) {
-    console.warn('Mondium.exe hazirlanamadi, Electron ile baslatiliyor:', e.message);
+    console.warn('Could not prepare Mondium.exe, starting with Electron:', e.message);
   }
 }
 

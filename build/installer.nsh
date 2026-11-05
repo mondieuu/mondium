@@ -1,5 +1,5 @@
-; Mondium: Windows "Varsayilan uygulamalar" listesine tarayici olarak kaydolur (Chrome gibi, kullanici basina, HKCU).
-; Kullanici Ayarlar > Varsayilan uygulamalar'dan Mondium'u secebilir; kurulum kendiliginden varsayilan YAPMAZ.
+; Mondium: registers as a browser in Windows "Default apps" (like Chrome, per user, HKCU).
+; The user can pick Mondium in Settings > Default apps; the installer does NOT make it the default by itself.
 
 !define MONDIUM_KEY "Software\Clients\StartMenuInternet\Mondium"
 
@@ -32,7 +32,7 @@
   WriteRegStr HKCU "${MONDIUM_KEY}\Capabilities\FileAssociations" ".svg" "MondiumHTML"
   WriteRegStr HKCU "${MONDIUM_KEY}\Capabilities\FileAssociations" ".webp" "MondiumHTML"
   WriteRegStr HKCU "Software\RegisteredApplications" "Mondium" "${MONDIUM_KEY}\Capabilities"
-  ; Kabuga dosya iliskileri degisti bilgisi
+  ; Notify the shell that file associations changed
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend
 

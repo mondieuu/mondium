@@ -1,9 +1,9 @@
 'use strict';
-// Baska tarayicidan yer isareti aktarma (sadece bu bilgisayarda okunur, hicbir yere gonderilmez; kaynak dosyalara yazilmaz).
-// - Chromium tabanlilar (Chrome, Edge, Brave, Opera, Vivaldi, Yandex, Chromium): profil klasorundeki "Bookmarks" JSON
-// - Firefox: places.sqlite (tarayici aciksa kilitli olabilir: gecici kopyasi okunur)
-// - Diger her sey: disari aktarilmis HTML dosyasi (Netscape yer isareti bicimi; Safari, Firefox, Chrome hepsi uretir)
-// Cikti: [{ title, url, path: ['Klasor', 'Alt klasor'] }]  (path bos = kok)
+// Bookmark import from other browsers (read locally only, never sent anywhere; source files are never written).
+// - Chromium-based (Chrome, Edge, Brave, Opera, Vivaldi, Yandex, Chromium): "Bookmarks" JSON in the profile folder
+// - Firefox: places.sqlite (may be locked while the browser runs: a temporary copy is read)
+// - Everything else: exported HTML file (Netscape bookmark format; Safari, Firefox, Chrome all produce it)
+// Output: [{ title, url, path: ['Folder', 'Subfolder'] }]  (empty path = root)
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,7 +11,7 @@ const path = require('path');
 const LOCAL = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const ROAMING = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
 
-// Kullanici veri klasoru (icinde Local State + profil klasorleri) olan tarayicilar
+// Browsers with a user data folder (containing Local State + profile folders)
 const CHROMIUM_FAMILY = [
   { key: 'chrome', name: 'Google Chrome', dir: path.join(LOCAL, 'Google', 'Chrome', 'User Data') },
   { key: 'edge', name: 'Microsoft Edge', dir: path.join(LOCAL, 'Microsoft', 'Edge', 'User Data') },
@@ -21,7 +21,7 @@ const CHROMIUM_FAMILY = [
   { key: 'chromium', name: 'Chromium', dir: path.join(LOCAL, 'Chromium', 'User Data') },
   { key: 'thorium', name: 'Thorium', dir: path.join(LOCAL, 'Thorium', 'User Data') }
 ];
-// Opera: profil dogrudan bu klasor (yeni surumlerde "Default" alt klasoru de olabilir)
+// Opera: the profile is this folder itself (newer versions may also have a "Default" subfolder)
 const OPERA_FAMILY = [
   { key: 'opera', name: 'Opera', dir: path.join(ROAMING, 'Opera Software', 'Opera Stable') },
   { key: 'operagx', name: 'Opera GX', dir: path.join(ROAMING, 'Opera Software', 'Opera GX Stable') }
@@ -41,7 +41,7 @@ function readChromiumBookmarks(file) {
     if (node.type === 'url') { if (okUrl(node.url)) out.push({ title: clean(node.name) || node.url, url: node.url, path: trail }); return; }
     for (const c of node.children || []) visit(c, c.type === 'folder' ? trail.concat(clean(c.name, 80) || 'Klasör') : trail);
   };
-  // Yer isaretleri cubugu kokte, digerleri kendi klasorlerinde (Chrome'un "Diger yer isaretleri" gibi)
+  // Bookmarks bar goes to the root, the rest into their own folders (like Chrome's "Other bookmarks")
   visit(j.roots.bookmark_bar, []);
   if (j.roots.other && (j.roots.other.children || []).length) visit(j.roots.other, ['Diğer yer işaretleri']);
   if (j.roots.synced && (j.roots.synced.children || []).length) visit(j.roots.synced, ['Mobil yer işaretleri']);
@@ -86,7 +86,7 @@ function firefoxProfiles() {
 function readFirefoxBookmarks(file) {
   let sqlite;
   try { sqlite = require('node:sqlite'); } catch { return null; }
-  // Firefox aciksa veritabani kilitli ve son degisiklikler -wal dosyasinda: ikisini birlikte gecici klasore kopyala
+  // If Firefox is open the DB is locked and recent changes are in -wal: copy both to a temp folder
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mondium-ff-'));
   const copy = path.join(tmp, 'places.sqlite');
   try {
@@ -120,7 +120,7 @@ function readFirefoxBookmarks(file) {
   finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
 }
 
-// ---------------------------------------------------------------- HTML (Netscape) dosyasi
+// ---------------------------------------------------------------- HTML (Netscape) file
 const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 const unent = (s) => String(s || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
   if (e[0] === '#') { const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : ''; }
@@ -129,10 +129,10 @@ const unent = (s) => String(s || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m
 function parseBookmarksHtml(html) {
   const out = [];
   const trail = [];
-  let pending = null;   // <H3> okundu, <DL> bekleniyor
+  let pending = null;   // <H3> read, expecting <DL>
   const re = /<h3[^>]*>([\s\S]*?)<\/h3>|<a\s([^>]*)>([\s\S]*?)<\/a>|<dl[^>]*>|<\/dl>/gi;
   let m, depth = 0;
-  const stack = [];   // her <DL> icin klasor adi eklendi mi
+  const stack = [];   // per <DL>: whether a folder name was pushed
   while ((m = re.exec(html)) && out.length <= 20000) {
     const tag = m[0].slice(0, 3).toLowerCase();
     if (m[1] !== undefined) { pending = clean(unent(m[1].replace(/<[^>]+>/g, '')), 80) || 'Klasör'; continue; }
@@ -144,7 +144,7 @@ function parseBookmarksHtml(html) {
     }
     if (tag === '<dl') {
       depth++;
-      // Ilk <DL> kok; "Bookmarks bar"/"Favorites bar" gibi cubuk klasoru koke acilir
+      // First <DL> is root; a bar folder like "Bookmarks bar"/"Favorites bar" is flattened into the root
       if (pending && depth > 1) {
         const isBar = /^(bookmarks bar|bookmarks toolbar|favorites bar|yer işaretleri çubuğu|sık kullanılanlar çubuğu|favoriler çubuğu)$/i.test(pending);
         if (!isBar || depth > 2) { trail.push(pending); stack.push(true); } else stack.push(false);
@@ -157,7 +157,7 @@ function parseBookmarksHtml(html) {
   return out;
 }
 
-// ---------------------------------------------------------------- Disari
+// ---------------------------------------------------------------- Exports
 function listSources() {
   const out = [];
   for (const b of CHROMIUM_FAMILY) out.push(...chromiumProfiles(b));
@@ -167,7 +167,7 @@ function listSources() {
     const items = readSource(s);
     s.count = items ? items.length : 0;
     s.ok = !!items;
-    delete s.file;   // dosya yolu sayfaya gitmez
+    delete s.file;   // file path is not sent to the page
   }
   return out;
 }

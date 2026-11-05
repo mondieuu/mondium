@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -12,7 +12,7 @@
     "dist:mac": "electron-builder --mac",
     "vmp-dev": "python -m castlabs_evs.vmp sign-pkg node_modules/electron/dist",
     "start:electron": "electron .",
-    "ublock-guncelle": "node tools/ublock-guncelle.js"
+    "update-ublock": "node tools/update-ublock.js"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.0.0",
@@ -54,7 +54,8 @@
       "mv2-bridge.js",
       "vendor/**/*",
       "site-data.js",
-      "bookmark-import.js"
+      "bookmark-import.js",
+      "i18n.js"
     ],
     "win": {
       "target": [

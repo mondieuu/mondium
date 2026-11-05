@@ -1,8 +1,8 @@
 'use strict';
-// uBlock Origin'i resmi GitHub surumunden (gorhill/uBlock, chromium paketi) vendor/ublock klasorune kurar/gunceller.
-// Her HTML sayfasinin basina Mondium koprusunu (vendor/mondium-ece.js) ekler; uBO'nun kendi dosyalarina baska dokunulmaz.
-// Kullanim: node tools/ublock-guncelle.js [surum]   (surum verilmezse en yenisi)
-// Not: filtre listelerini uBO kendisi gunceller; bu betik sadece uBO'nun programini gunceller.
+// Installs/updates uBlock Origin into vendor/ublock from the official GitHub release (gorhill/uBlock, chromium package).
+// Adds the Mondium bridge (vendor/mondium-ece.js) to the head of every HTML page; no other uBO file is touched.
+// Usage: node tools/update-ublock.js [version]   (latest when no version is given)
+// Note: uBO updates its filter lists itself; this script only updates the uBO program.
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -17,7 +17,7 @@ async function main() {
   const want = process.argv[2];
   const rel = await (await fetch(`https://api.github.com/repos/gorhill/uBlock/releases/${want ? 'tags/' + want : 'latest'}`, { headers: { 'User-Agent': 'Mondium' } })).json();
   const asset = (rel.assets || []).find((a) => /\.chromium\.zip$/.test(a.name));
-  if (!asset) throw new Error('chromium paketi bulunamadi: ' + (rel.message || rel.tag_name));
+  if (!asset) throw new Error('chromium package not found: ' + (rel.message || rel.tag_name));
   console.log('uBlock Origin', rel.tag_name, '-', asset.name);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mondium-ubo-'));
   const zip = path.join(tmp, 'ubo.zip');
@@ -27,8 +27,8 @@ async function main() {
   else execFileSync('unzip', ['-q', zip, '-d', out]);
   const src = path.join(out, fs.readdirSync(out).find((d) => fs.existsSync(path.join(out, d, 'manifest.json'))) || '');
   const m = JSON.parse(fs.readFileSync(path.join(src, 'manifest.json'), 'utf8'));
-  if (m.manifest_version !== 2 || !/uBlock/i.test(m.name || '') && !/__MSG_/.test(m.name || '')) throw new Error('beklenmeyen paket');
-  // Kopru: ilk betik olarak her sayfaya
+  if (m.manifest_version !== 2 || !/uBlock/i.test(m.name || '') && !/__MSG_/.test(m.name || '')) throw new Error('unexpected package');
+  // Bridge: first script on every page
   fs.copyFileSync(bridge, path.join(src, 'js', 'mondium-ece.js'));
   let n = 0;
   for (const f of fs.readdirSync(src).filter((x) => x.endsWith('.html'))) {
@@ -42,6 +42,6 @@ async function main() {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.cpSync(src, dest, { recursive: true });
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(`Kuruldu: ${dest} (surum ${m.version}, ${n} sayfaya kopru eklendi)`);
+  console.log(`Installed: ${dest} (version ${m.version}, bridge added to ${n} pages)`);
 }
-main().catch((e) => { console.error('Hata:', e.message); process.exit(1); });
+main().catch((e) => { console.error('Error:', e.message); process.exit(1); });

@@ -47,7 +47,7 @@
   .row.click { cursor:default; }
   .row:first-child { border-radius:12px 12px 0 0; } .row:last-child { border-radius:0 0 12px 12px; } .row:only-child { border-radius:12px; }
 
-  /* Anahtar */
+  /* Toggle switch */
   .sw { position:relative; width:36px; height:20px; flex:none; border-radius:10px; background:var(--off); border:0; transition:background .15s; }
   .sw::after { content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:#fff; transition:transform .15s; }
   .sw.on { background:var(--accent); }
@@ -59,7 +59,7 @@
   .btn:hover { background:var(--hover); }
   .chev { color:var(--dim); }
 
-  /* Tema secimi */
+  /* Theme picker */
   .themes { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:12px; padding:16px 20px 20px; }
   .th { border:2px solid transparent; border-radius:12px; padding:0; background:none; text-align:center; }
   .th .pv { height:52px; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; border:1px solid var(--border); }
@@ -75,7 +75,7 @@
     border-radius:8px; background:#303030; color:#f2f2f2; box-shadow:0 2px 8px rgba(0,0,0,.3); transform:translateY(120px); transition:transform .2s; }
   .toast.show { transform:none; }
   .toast button { height:36px; padding:0 12px; border:0; border-radius:18px; background:none; color:#a8c7fa; font-weight:600; }
-  /* Korunan siteler + site verileri */
+  /* Protected sites + site data */
   .intro { padding:14px 20px 4px; color:var(--dim); line-height:1.5; }
   .ps-add { display:flex; gap:8px; padding:12px 20px; align-items:center; flex-wrap:wrap; }
   .ps-add .txt { flex:1 1 220px; width:auto; min-width:0; }
@@ -103,7 +103,7 @@
   .btn.pri { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
   .btn:disabled { opacity:.45; }
   .more { display:block; margin:8px auto 12px; }
-  /* Gezinti verilerini temizle penceresi */
+  /* Clear browsing data dialog */
   .modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:50; padding:16px; }
   .modal[hidden] { display:none !important; }
   .dlg { width:540px; max-width:100%; max-height:calc(100vh - 32px); overflow-y:auto; background:var(--card); color:var(--text); border-radius:16px;
@@ -169,7 +169,7 @@ function applyTheme(t) {
   if (t.mode === 'dark') { st.setProperty('--card', t.toolbar); st.setProperty('--field', t.toolbar); }
 }
 
-// ---------- Kucuk yapi taslari
+// ---------- Small building blocks
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 function row(label, desc, control, onClick) {
   const r = el('div', 'row' + (onClick ? ' click' : ''));
@@ -195,7 +195,7 @@ const section = (id, title, ...rows) => { const h = el('h2', null, title); h.id 
 let toastTimer = null;
 function toast(msg) { $('toastT').textContent = msg; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3000); }
 
-// ---------- Cizim
+// ---------- Rendering
 function render() {
   const themes = el('div', 'themes');
   for (const t of d.themes) {
@@ -282,7 +282,7 @@ function render() {
   spy();
 }
 
-// ================================================================ Korunan Siteler
+// ================================================================ Protected sites
 const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 const dec = (v) => (window.LANG === 'en' ? v : v.replace('.', ','));
 const fmtBytes = (n) => (n == null ? L('ölçülemedi', 'not measurable') : n < 1024 ? n + ' B' : n < 1048576 ? dec((n / 1024).toFixed(1)) + ' KB' : dec((n / 1048576).toFixed(1)) + ' MB');
@@ -294,7 +294,7 @@ function ago(t) {
   if (s < 86400) return L(Math.round(s / 3600) + ' saat önce', pl(Math.round(s / 3600), 'hour', 'hours') + ' ago');
   return L(Math.round(s / 86400) + ' gün önce', pl(Math.round(s / 86400), 'day', 'days') + ' ago');
 }
-// ---------------------------------------------------------------- Yer isaretlerini ice aktar
+// ---------------------------------------------------------------- Import bookmarks
 const bm = { box: null, busy: false };
 function bmSection() {
   if (!bm.box) {
@@ -413,7 +413,7 @@ function psDraw() {
   }));
 }
 
-// ================================================================ Cerezler ve site verileri (gercek envanter)
+// ================================================================ Cookies and site data (real inventory)
 const sd = { box: null, data: null, q: '', sort: 'size', limit: 100, loading: false };
 function sdSection() {
   if (!sd.box) {
@@ -498,7 +498,7 @@ function sdDraw() {
   sd.lst.replaceChildren(...out);
 }
 
-// ================================================================ Gezinti verilerini temizle (Ctrl+Shift+Delete)
+// ================================================================ Clear browsing data (Ctrl+Shift+Delete)
 const cl = { el: null, running: false };
 function clBuild() {
   if (cl.el) return;
@@ -618,7 +618,7 @@ function hashAction() {
 }
 window.addEventListener('hashchange', hashAction);
 
-// Sol menude bulunulan bolumu isaretle
+// Highlight the current section in the left menu
 function spy() {
   const links = [...document.querySelectorAll('nav a')];
   let cur = links[0];

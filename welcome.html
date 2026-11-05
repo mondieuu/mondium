@@ -19,6 +19,9 @@
   .logo span { width:34px; height:34px; border:7px solid #fff; border-right-color:transparent; border-radius:50%; transform:rotate(-45deg); }
   h1 { font-size:32px; font-weight:400; margin-bottom:10px; }
   p.sub { color:var(--dim); font-size:15px; margin-bottom:34px; }
+  #lang { display:flex; gap:8px; justify-content:center; margin:0 0 22px; }
+  #lang button { height:32px; padding:0 16px; border-radius:16px; border:1px solid var(--line, rgba(128,128,128,.35)); background:transparent; color:inherit; font-size:13px; cursor:pointer; }
+  #lang button.on { border-color:var(--accent); color:var(--accent); font-weight:600; }
   #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; text-align:left; }
   .card { border:2px solid transparent; border-radius:12px; padding:8px; background:var(--card); cursor:default; transition:transform .12s; }
   .card:hover { transform:translateY(-2px); }
@@ -44,6 +47,7 @@
   <main>
     <div class="logo"><span></span></div>
     <h1>Mondium'a hoş geldiniz</h1>
+    <div id="lang" role="radiogroup" aria-label="Dil / Language"><button data-l="tr">Türkçe</button><button data-l="en">English</button></div>
     <p class="sub">Başlamak için bir tema seçin.</p>
     <div id="grid"></div>
     <div class="actions">
@@ -96,6 +100,12 @@ function render() {
 }
 
 document.getElementById('go').onclick = () => api && api.call('welcome-done');
+// Language: the page reloads in the chosen language (the main process reloads Mondium pages on change)
+for (const b of document.querySelectorAll('#lang button')) {
+  b.classList.toggle('on', b.dataset.l === window.LANG);
+  b.setAttribute('aria-checked', String(b.dataset.l === window.LANG));
+  b.onclick = () => { if (api && b.dataset.l !== window.LANG) api.call('language', b.dataset.l); };
+}
 if (api) {
   api.onUpdate((d) => { data = d; render(); });
   api.get().then((d) => { data = d; render(); });

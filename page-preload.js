@@ -1,7 +1,7 @@
 'use strict';
 const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
-// Sayfanin kendi betiklerinden ONCE ana dunyada calistir
+// Run in the main world BEFORE the page's own scripts
 function inMainWorld(fn) {
   try {
     if (typeof contextBridge.executeInMainWorld === 'function') contextBridge.executeInMainWorld({ func: fn });
@@ -9,19 +9,19 @@ function inMainWorld(fn) {
   } catch {}
 }
 
-// 1) Tarayicinin kendi yerel sayfalari (yeni sekme, karsilama, gecmis, indirilenler): kisayol, tema, liste API'si.
-//    Diger sitelerde bu API hic olusturulmaz. Ana surec ayrica her komutta gonderen sayfayi denetler.
+// 1) The browser's own local pages (new tab, welcome, history, downloads): shortcuts, theme, list API.
+//    This API is never created on other sites. The main process also checks the sender page on every command.
 if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions)\.html$/.test(location.pathname)) {
   contextBridge.exposeInMainWorld('pageApi', {
-    lang: ipcRenderer.sendSync('mondium-lang'),   // arayuz dili: 'tr' | 'en' (bkz. i18n.js)
+    lang: ipcRenderer.sendSync('mondium-lang'),   // UI language: 'tr' | 'en' (see i18n.js)
     get: () => ipcRenderer.invoke('page', 'get'),
     call: (cmd, arg) => ipcRenderer.invoke('page', cmd, arg),
     onUpdate: (fn) => { ipcRenderer.removeAllListeners('page-update'); ipcRenderer.on('page-update', (_e, d) => fn(d)); }
   });
 }
 
-// 2) Passkey (gecis anahtari) tamamen kapali: siteler passkey destegi gormez,
-//    Windows Hello / "passkey kullan" pencereleri hic acilmaz. Siteler sifreyle girise doner.
+// 2) Passkeys fully disabled: sites see no passkey support,
+//    Windows Hello / "use a passkey" dialogs never open. Sites fall back to password sign-in.
 inMainWorld(() => {
   try {
     const c = navigator.credentials;
@@ -35,8 +35,8 @@ inMainWorld(() => {
   } catch {}
 });
 
-// Reklam engelleyicinin sayfa ici betikleri (uBlock Origin scriptlet'leri): uBO gibi sayfanin kendi kodundan ONCE
-// calisir (bkz. main.js 'mondium-scriptlets'). Her betik kendi fonksiyon kapsaminda; birbirinin tanimlarini ezmez.
+// Ad blocker in-page scripts (uBlock Origin scriptlets): like uBO, run BEFORE the page's own code
+// (see main.js 'mondium-scriptlets'). Each runs in its own function scope so they don't clobber each other.
 if (/^https?:$/.test(location.protocol)) {
   let scripts = [];
   try { scripts = ipcRenderer.sendSync('mondium-scriptlets', location.href) || []; } catch {}
@@ -45,8 +45,8 @@ if (/^https?:$/.test(location.protocol)) {
   }
 }
 
-// Dikey sekmelerin saklanma modu: fare sayfanin sol kenarina degince ana surece bir kez haber verilir (kenar cubugu
-// acilir). Ana surec ayar kapaliysa yok sayar. Kenardan uzaklasinca tekrar kurulur; surekli mesaj gonderilmez.
+// Vertical tabs auto-hide: when the mouse touches the page's left edge the main process is notified once (sidebar
+// opens). Ignored if the setting is off. Re-arms after leaving the edge; no continuous messages.
 {
   let atEdge = false, edge = 2;
   try { edge = ipcRenderer.sendSync('mondium-edge-px') || 2; } catch {}
@@ -57,21 +57,21 @@ if (/^https?:$/.test(location.protocol)) {
   }, { capture: true, passive: true });
 }
 
-// Yerlesik resim buyutme dunyasi (1014, bkz. hoverzoom.js): sitenin CSP'si baska sunucudaki buyuk resmi
-// engellemesin diye resim/video icin ayri kural (uzanti icerik betikleri de Chrome'da boyle calisir).
+// Built-in image zoom world (1014, see hoverzoom.js): separate img/media rule so the site's CSP doesn't block
+// the large image from another server (extension content scripts work this way in Chrome too).
 if (/^https?:$/.test(location.protocol)) {
   try { webFrame.setIsolatedWorldInfo(1014, { name: 'Mondium resim büyütme', securityOrigin: location.origin, csp: "default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline'" }); } catch {}
 }
 
-// 3) Uzanti kullanici betikleri (chrome.userScripts uyumlulugu, bkz. user-scripts.js).
-//    Sadece web sayfalarinda ve bir uzanti betik kaydettiyse calisir; her uzanti kendi ayrik dunyasinda.
-//    Dinleyici listesi uzantinin kendi dunyasinda tutulur (kopru fonksiyon kopyalari yuzunden removeListener
-//    calismaz ve dinleyiciler birikirdi); kopruden sadece tek bir dagitici fonksiyon gecer.
+// 3) Extension user scripts (chrome.userScripts compatibility, see user-scripts.js).
+//    Runs only on web pages and only if an extension registered scripts; each extension in its own isolated world.
+//    The listener list lives in the extension's world (bridge function copies would break removeListener
+//    and listeners would pile up); only a single dispatcher function crosses the bridge.
 if (/^https?:$/.test(location.protocol)) {
   let packs = [];
   try { packs = ipcRenderer.sendSync('mondium-us-get', location.href) || []; } catch {}
   if (packs.length) {
-    const dispatchers = new Map();   // uzanti -> dunyadaki dagitici
+    const dispatchers = new Map();   // extension -> dispatcher in its world
     ipcRenderer.on('mondium-us-tabmsg', (_e, extId, reqId, msg) => {
       const d = dispatchers.get(extId);
       if (!d) { ipcRenderer.send('mondium-us-tabreply', reqId, undefined); return; }
@@ -79,9 +79,9 @@ if (/^https?:$/.test(location.protocol)) {
     });
     for (const p of packs) {
       try {
-        // Electron, CSP verilince kaynak adresini de istiyor; sayfanin kendi adresi kullanilir (Chrome da boyle yapar)
+        // With a CSP Electron also requires a security origin; the page's own origin is used (as Chrome does)
         webFrame.setIsolatedWorldInfo(p.worldId, { name: p.name, csp: p.csp, securityOrigin: location.origin });
-        // Her dunyada Chromium'un kendi "chrome" nesnesi zaten var; kopru ayri adla eklenir, sonra chrome.runtime kurulur
+        // Each world already has Chromium's own "chrome" object; the bridge uses a separate name, then chrome.runtime is set up
         contextBridge.exposeInIsolatedWorld(p.worldId, '__mondiumRuntime', {
           id: p.extId,
           send: (msg) => ipcRenderer.invoke('mondium-us-msg', p.extId, msg),
@@ -99,7 +99,7 @@ if (/^https?:$/.test(location.protocol)) {
           getURL: (f) => 'chrome-extension://' + b.id + '/' + String(f || '').replace(/^\\//, ''),
           sendMessage: (...a) => {
             const cb = typeof a[a.length - 1] === 'function' ? a.pop() : null;
-            const msg = a.length > 1 && typeof a[0] === 'string' ? a[1] : a[0];   // (uzantiKimligi, mesaj) bicimi de olur
+            const msg = a.length > 1 && typeof a[0] === 'string' ? a[1] : a[0];   // (extensionId, message) form also allowed
             const pr = b.send(msg);
             if (cb) { pr.then((v) => cb(v), () => cb()); return undefined; }
             return pr;
