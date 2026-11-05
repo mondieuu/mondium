@@ -81,7 +81,15 @@ Clear everything, except the sites you choose to keep signed in to.
 - **WebHID, WebUSB, Web Serial and Web Bluetooth** for web-based device configurators and firmware flashers.
 - Codecs: H.264, HEVC (hardware), VP9, AV1, AAC, Opus, MP3. Built-in PDF viewer.
 
-## Getting started
+## Download
+
+**[⬇ Download Mondium for Windows](https://github.com/mondieuu/mondium/releases/latest/download/Mondium-Setup-1.0.0.exe)** (64-bit, Windows 10/11) · [all releases](https://github.com/mondieuu/mondium/releases)
+
+The installer works like Chrome's: one click, no admin rights, installs for the current user and opens Mondium when it's done. Mondium also shows up under **Settings → Apps → Default apps**, so you can make it your default browser.
+
+> The installer is not code-signed yet, so Windows SmartScreen may show a warning. Click **More info → Run anyway**.
+
+## Build from source
 
 Requirements: [Node.js](https://nodejs.org/) 20 or newer, Windows 10/11.
 
@@ -92,7 +100,7 @@ npm install
 npm start
 ```
 
-Build a Windows installer (`dist/Mondium-Kurulum-<version>.exe`):
+Build the Windows installer (`dist/Mondium-Setup-<version>.exe`):
 
 ```bash
 npm run dist:win

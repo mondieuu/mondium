@@ -2,7 +2,7 @@
   "name": "mondium",
   "productName": "Mondium",
   "version": "1.0.0",
-  "description": "Mondium: hafif, gizlilik odakli tarayici (Chromium motoru) - dahili reklam engelleyici, cihaz (WebHID/USB/Serial) destegi",
+  "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
   "scripts": {
@@ -67,21 +67,24 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Mondium",
-      "runAfterFinish": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "uninstallDisplayName": "Mondium",
+      "include": "build/installer.nsh",
       "installerLanguages": [
+        "en_US",
         "tr_TR"
       ],
-      "language": "1055",
+      "multiLanguageInstaller": true,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "Mondium-Kurulum-${version}.exe"
+      "artifactName": "Mondium-Setup-${version}.exe"
     },
     "linux": {
       "target": [
@@ -99,7 +102,7 @@
       "output": "dist"
     },
     "electronDownload": {
-      "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
+      "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
     "afterSign": "build/vmp-win.js",
     "afterPack": "build/vmp-mac.js",

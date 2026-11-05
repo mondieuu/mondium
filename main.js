@@ -2735,9 +2735,18 @@ app.on('second-instance', (_e, argv) => {
   if (!win) return;
   if (win.isMinimized()) win.restore();
   win.focus();
-  const url = argv.find((a) => /^https?:\/\//i.test(a));
+  const url = urlFromArgs(argv.slice(1));
   if (url) newTab(url);
 });
+// Windows'tan gelen adres ya da dosya (varsayilan tarayici / "Birlikte ac"): http(s) adresi veya var olan .html/.pdf/.svg/.webp dosyasi
+function urlFromArgs(args) {
+  for (const a of args) {
+    if (typeof a !== 'string' || a.startsWith('-')) continue;
+    if (/^https?:\/\//i.test(a)) return a;
+    if (/\.(html?|pdf|svg|webp)$/i.test(a)) { try { if (fs.statSync(a).isFile()) return pathToFileURL(path.resolve(a)).href; } catch {} }
+  }
+  return null;
+}
 
 app.whenReady().then(async () => {
   // Widevine DRM: ilk acilista indirilir, sonra arka planda guncellenir (baslangici bekletmez)
@@ -2768,7 +2777,7 @@ app.whenReady().then(async () => {
   createWindow();
   startBlocking();
   setupExtensions();
-  const startUrl = process.argv.slice(1).find((a) => /^https?:\/\//i.test(a));
+  const startUrl = urlFromArgs(process.argv.slice(1));
   const restored = settings.firstRunDone && restoreSession();
   useWin(windows[0]);
   if (startUrl) newTab(startUrl);

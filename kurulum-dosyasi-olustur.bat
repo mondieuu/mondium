@@ -12,6 +12,6 @@ echo [2/2] Kurulum dosyasi olusturuluyor (ilk seferde birkac dakika surebilir)..
 call npm run dist:win || (echo. & echo Kurulum dosyasi olusturulamadi. Yukaridaki hatayi kontrol edin. & pause & exit /b 1)
 
 echo.
-echo Tamamlandi! Kurulum dosyasi "dist" klasorunde: Mondium-Kurulum-*.exe
+echo Tamamlandi! Kurulum dosyasi "dist" klasorunde: Mondium-Setup-*.exe
 start "" "%~dp0dist"
 pause
