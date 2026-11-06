@@ -44,11 +44,17 @@ function setupUserScripts({ ses, storeFile }) {
 
   const codeCache = new Map();   // file path -> code
   function readCode(ext, file) {
-    const full = path.resolve(ext.path, String(file).replace(/^\//, ''));
-    if (!full.startsWith(path.resolve(ext.path) + path.sep)) return null;   // don't escape the extension folder
+    let full;
+    try { full=fs.realpathSync(path.resolve(ext.path, String(file).replace(/^\//, ''))); } catch { return null; }
+    let root;try{root=fs.realpathSync(ext.path);}catch{return null;}
+    const relative=path.relative(root,full);if(relative.startsWith('..')||path.isAbsolute(relative))return null;
+    if(fs.statSync(full).size>1024*1024)return null;   // don't escape the extension folder
     if (!codeCache.has(full)) { try { codeCache.set(full, fs.readFileSync(full, 'utf8')); } catch { codeCache.set(full, null); } }
     return codeCache.get(full);
   }
+  const permitted = (ext) => !!ext && (ext.manifest?.permissions || []).includes('userScripts');
+  const hostAllowed = (ext, url) => permitted(ext) && [...(ext.manifest.host_permissions || []), ...(ext.manifest.permissions || []).filter(p => p === '<all_urls>' || p.includes('://'))].some(p => matchPattern(p, url));
+  const issued = new Map(); // WebContents -> extensions actually injected into the current document
   const loadedExt = (extId) => { try { return extApi.getExtension(extId) || null; } catch { return null; } };
   if (typeof extApi.on === 'function') {
     extApi.on('extension-loaded', () => codeCache.clear());     // updated extensions use their new code
@@ -67,30 +73,41 @@ function setupUserScripts({ ses, storeFile }) {
   const workers = new Map();                       // extension id -> running worker
   const pending = new Map();                       // request no -> { resolve, timer }
   let nextReq = 1;
-  const wait = (reqId) => new Promise((resolve) => {
+  const wait = (reqId, owner) => new Promise((resolve) => {
+    if(pending.size>=256){resolve(undefined);return;}
     const timer = setTimeout(() => { pending.delete(reqId); resolve(undefined); }, TIMEOUT);
-    pending.set(reqId, { resolve, timer });
+    pending.set(reqId, { resolve, timer, owner });
   });
-  const settle = (reqId, value) => { const p = pending.get(reqId); if (!p) return; pending.delete(reqId); clearTimeout(p.timer); p.resolve(value); };
+  const settle = (reqId, value, owner) => { const p = pending.get(reqId); if (!p || p.owner !== owner) return; pending.delete(reqId); clearTimeout(p.timer); p.resolve(value); };
 
   function swCall(extId, op, args) {
+    const ext=loadedExt(extId);
+    if (!permitted(ext)) return { error: 'userScripts permission required' };
     const e = entry(extId);
     switch (op) {
       case 'configureWorld': e.world = { csp: typeof args[0].csp === 'string' ? args[0].csp : undefined, messaging: !!args[0].messaging }; save(); return {};
       case 'register': {
-        const list = (Array.isArray(args[0]) ? args[0] : []).map(normalize);
+        if(!Array.isArray(args[0])||args[0].length>128)return {error:'Invalid script batch'};
+        const list = args[0].map(normalize);
+        if (e.scripts.length + list.length > 128) return { error: 'Too many scripts' };
         for (const s of list) {
+          if (!s.matches.length || s.js.reduce((n,j)=>n+(j.code?.length||0),0)>1024*1024) return { error: 'Invalid or oversized script' };
           if (!s.id) return { error: 'Script id must not be empty' };
           if (e.scripts.some((x) => x.id === s.id)) return { error: `Duplicate script ID '${s.id}': is already registered` };
         }
         e.scripts.push(...list); save(); return {};
       }
       case 'update': {
-        for (const s of (Array.isArray(args[0]) ? args[0] : [])) {
+        if(!Array.isArray(args[0])||args[0].length>128)return {error:'Invalid script batch'};
+        const changes=[];
+        for (const s of args[0]) {
           const i = e.scripts.findIndex((x) => x.id === s.id);
           if (i < 0) return { error: `Script with ID '${s.id}' does not exist` };
-          e.scripts[i] = normalize({ ...e.scripts[i], ...s });
+          const next=normalize({ ...e.scripts[i], ...s });
+          if(!next.matches.length||next.js.reduce((n,j)=>n+(j.code?.length||0),0)>1024*1024)return {error:'Invalid or oversized script'};
+          changes.push([i,next]);
         }
+        for(const [i,next]of changes)e.scripts[i]=next;
         save(); return {};
       }
       case 'unregister': {
@@ -104,10 +121,10 @@ function setupUserScripts({ ses, storeFile }) {
       }
       case 'tabMessage': {
         const wc = webContents.fromId(Number(args[0]));
-        if (!wc || wc.isDestroyed()) return undefined;
+        if (!wc || wc.isDestroyed() || wc.session !== ses || !hostAllowed(ext,wc.getURL()) || !issued.get(wc.id)?.has(extId)) return undefined;
         const reqId = nextReq++;
         try { wc.send('mondium-us-tabmsg', extId, reqId, args[1]); } catch { return undefined; }
-        return wait(reqId);
+        return wait(reqId, wc.id);
       }
     }
     return { error: 'Unknown action' };
@@ -122,7 +139,7 @@ function setupUserScripts({ ses, storeFile }) {
     if (attached.has(w)) return;
     attached.add(w);
     w.ipc.handle('mondium-us', (_e, op, ...args) => swCall(extId, op, args));   // id is taken from the worker's own URL
-    w.ipc.on('mondium-us-reply', (_e, reqId, value) => settle(reqId, value));
+    w.ipc.on('mondium-us-reply', (_e, reqId, value) => settle(reqId, value, extId));
   }
   ses.serviceWorkers.on('running-status-changed', ({ runningStatus, versionId }) => {
     if (runningStatus === 'starting' || runningStatus === 'running') attach(versionId);
@@ -142,10 +159,14 @@ function setupUserScripts({ ses, storeFile }) {
   ipcMain.on('mondium-us-get', (e, url) => {
     const out = [];
     try {
+      if (e.sender.session !== ses || !e.senderFrame || e.senderFrame.url !== url) { e.returnValue = out; return; }
+      if (e.senderFrame.parent) { e.returnValue=out;return; }
+      if(!issued.has(e.sender.id))e.sender.once('destroyed',()=>issued.delete(e.sender.id));
+      issued.set(e.sender.id,new Set());
       if (e.senderFrame && e.senderFrame.parent) { e.returnValue = out; return; }   // main frame only for now
       Object.keys(reg).forEach((extId, i) => {
         const ext = loadedExt(extId);
-        if (!ext || !reg[extId].scripts.length) return;
+        if (!hostAllowed(ext,url) || !reg[extId].scripts.length) return;
         const pack = { extId, worldId: WORLD_BASE + i, name: ext.name || extId, csp: reg[extId].world.csp || DEFAULT_CSP, start: [], end: [], idle: [] };
         for (const s of reg[extId].scripts) {
           if (!s.matches.some((p) => matchPattern(p, url)) || s.excludeMatches.some((p) => matchPattern(p, url))) continue;
@@ -155,7 +176,7 @@ function setupUserScripts({ ses, storeFile }) {
             if (code) slot.push({ code, url: `chrome-extension://${extId}/${j.file || s.id}` });
           }
         }
-        if (pack.start.length || pack.end.length || pack.idle.length) out.push(pack);
+        if (pack.start.length || pack.end.length || pack.idle.length) { out.push(pack);issued.get(e.sender.id).add(extId); }
       });
     } catch (err) { console.warn('Could not prepare user scripts:', err.message); }
     e.returnValue = out;
@@ -163,7 +184,7 @@ function setupUserScripts({ ses, storeFile }) {
 
   // Page -> extension message
   ipcMain.handle('mondium-us-msg', async (e, extId, msg) => {
-    if (!reg[extId] || !loadedExt(extId)) return undefined;
+    if (e.sender.session !== ses || !reg[extId] || !hostAllowed(loadedExt(extId), e.senderFrame?.url || '') || !issued.get(e.sender.id)?.has(extId)) return undefined;
     const wc = e.sender;
     const frame = e.senderFrame;
     const sender = {
@@ -175,10 +196,10 @@ function setupUserScripts({ ses, storeFile }) {
     if (!w) return undefined;
     const reqId = nextReq++;
     try { w.send('mondium-us-deliver', reqId, msg, sender); } catch { return undefined; }
-    return wait(reqId);
+    return wait(reqId, extId);
   });
   // Page's reply to the extension (for chrome.tabs.sendMessage)
-  ipcMain.on('mondium-us-tabreply', (_e, reqId, value) => settle(reqId, value));
+  ipcMain.on('mondium-us-tabreply', (e, reqId, value) => { if(e.sender.session===ses)settle(reqId, value, e.sender.id); });
 
   // Purge registrations of removed extensions
   setTimeout(() => {

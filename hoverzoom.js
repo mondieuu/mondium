@@ -237,6 +237,11 @@
   const typing = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   const onKey = (e) => {
     if (e.key === 'Escape') { if (media || pinned) { hide(); if (pinned) e.stopPropagation(); } return; }
+    if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target) && media && box.style.display === 'block') {
+      e.preventDefault(); e.stopPropagation();
+      if (!e.repeat && typeof window.mondiumZoomDownload === 'function') window.mondiumZoomDownload(media.currentSrc || media.src);
+      return;
+    }
     if (e.key === 'Control' && !pinned) { hide(); return; }
     if ((e.key === 'z' || e.key === 'Z') && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target)) {
       if (pinned) { hide(); e.preventDefault(); e.stopPropagation(); return; }

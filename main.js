@@ -10,7 +10,7 @@
  *    reload menu (normal / hard / clear cache), full URL display, force dark pages
  */
 const {
-  app, BaseWindow, WebContentsView, session, ipcMain, Menu, clipboard,
+  app, nativeImage, BrowserWindow, BaseWindow, WebContentsView, session, ipcMain, Menu, clipboard,
   dialog, shell, nativeTheme, net, Notification, webFrameMain, webContents, screen
 } = require('electron');
 // castLabs Electron (Widevine DRM). Not in stock Electron; in that case we run without DRM.
@@ -24,6 +24,8 @@ const { pathToFileURL } = require('url');
 // or an incognito window): with uBO as the default this saves ~6.6 MB RAM and ~60 ms at startup.
 let ElectronBlockerLib = null;
 const ElectronBlockerLazy = () => ElectronBlockerLib || (ElectronBlockerLib = require('@ghostery/adblocker-electron').ElectronBlocker);
+const { createThreatProtection } = require('./threat-protection');
+const { readResponseBytes, assertImageLimits } = require('./bounded-fetch');
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
 
@@ -33,7 +35,7 @@ if (process.env.MONDIUM_PROFILE) app.setPath('userData', process.env.MONDIUM_PRO
 // Extension support (Chrome Web Store + chrome.* APIs). If it fails to load, the browser keeps working without extensions.
 let ECE = null, CWS = null, extensions = null;
 try { ({ ElectronChromeExtensions: ECE } = require('electron-chrome-extensions')); } catch (e) { console.warn('Extension library missing:', e.message); }
-try { CWS = require('electron-chrome-web-store'); } catch (e) { console.warn('Web Store library missing:', e.message); }
+try { CWS = require('./vendor/secure-web-store'); } catch (e) { console.warn('Web Store library missing:', e.message); }
 
 const isMac = process.platform === 'darwin';
 
@@ -62,10 +64,16 @@ const DEFAULTS = {
   bookmarksBar: true,        // Thorium: on by default
   fullUrl: true,             // Thorium: show full URL
   forceDarkPages: false,
-  strictIsolation: false,    // true = every site in its own process like Chrome (much more RAM); false = only login/payment/protected sites isolated
+  strictIsolation: true,     // true = every site in its own process like Chrome (more RAM, safer); false = only login/payment/protected sites isolated
+  askDownloadLocation: false, // ask where to save every download (native, non-blocking dialog)
+  newTabPrompt: false,       // Ctrl+T opens a search/address box first instead of the new tab page
+  overlayScrollbar: true,    // thin overlay scrollbar that takes no page width
   clearGoogleOnExit: false,  // when on, Google cookies/site data are cleared on exit (signs out of Google)
   keepLogins: true,          // keep site logins across restarts (session cookies are made persistent)
-  newtabTitle: 'Mondium',    // title on the new tab page (empty = hidden)
+  newtabClock: 'top',        // new tab clock: 'top' (above the logo), 'tl', 'tr', 'bl', 'br' (corners) or 'off'
+  newtabClockSize: 56,       // new tab clock size in px
+  newtabClockFont: 'system', // new tab clock font (key of CLOCK_FONTS in newtab.html)
+  newtabClockWeight: 300,    // new tab clock font weight
   theme: 'sistem',
   firstRunDone: false,
   shortcuts: [],             // favorites on the new tab page {title, url, icon}
@@ -97,6 +105,8 @@ try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'ut
 // Installs from before language support were Turkish-only: keep them Turkish instead of following the system
 // language (which may be English even for Turkish users). New installs pick a language on the welcome page.
 if (settings.firstRunDone && !settings.languageSet) { if (settings.language === 'auto') settings.language = 'tr'; settings.languageSet = true; }
+// Security: existing profiles move once to full site isolation; turning it off afterwards is a deliberate choice in Settings.
+if (!settings.isolationSecurityMigration) { settings.strictIsolation = true; settings.isolationSecurityMigration = true; }
 let saveTimer = null;
 function saveSettings(now = false) {
   clearTimeout(saveTimer);
@@ -160,10 +170,13 @@ const WELCOME_URL = pathToFileURL(path.join(__dirname, 'welcome.html')).href;
 const HISTORY_URL = pathToFileURL(path.join(__dirname, 'history.html')).href;
 const DOWNLOADS_URL = pathToFileURL(path.join(__dirname, 'downloads.html')).href;
 const SETTINGS_URL = pathToFileURL(path.join(__dirname, 'settings.html')).href;
+const SECURITY_URL = pathToFileURL(path.join(__dirname, 'securitywarning.html')).href;
+const TASKS_URL = pathToFileURL(path.join(__dirname, 'taskmanager.html')).href;
 const EXTENSIONS_URL = pathToFileURL(path.join(__dirname, 'extensions.html')).href;
 const baseOf = (u) => (typeof u === 'string' ? u.split('#')[0].split('?')[0] : '');
 // Short names shown in and typeable into the address bar
 const PAGE_ALIASES = {
+  'mondium://tasks': TASKS_URL, 'mondium://task-manager': TASKS_URL,
   'mondium://history': HISTORY_URL, 'mondium://gecmis': HISTORY_URL,
   'mondium://downloads': DOWNLOADS_URL, 'mondium://indirilenler': DOWNLOADS_URL,
   'mondium://settings': SETTINGS_URL, 'mondium://ayarlar': SETTINGS_URL,
@@ -171,6 +184,8 @@ const PAGE_ALIASES = {
 };
 function pageKind(u) {
   const b = baseOf(u);
+  if (b === SECURITY_URL) return 'security';
+  if (b === TASKS_URL) return 'tasks';
   if (b === HISTORY_URL) return 'history';
   if (b === DOWNLOADS_URL) return 'downloads';
   if (b === SETTINGS_URL) return 'settings';
@@ -181,6 +196,8 @@ function pageKind(u) {
 const isInternal = (u) => !!pageKind(u);
 function displayUrl(u) {
   const k = pageKind(u);
+  if (k === 'security') return 'mondium://security';
+  if (k === 'tasks') return 'mondium://tasks';
   if (k === 'history') return 'mondium://history';
   if (k === 'downloads') return 'mondium://downloads';
   if (k === 'settings') return 'mondium://settings';
@@ -216,9 +233,9 @@ function sessionData() {
     let active = 0;
     for (const t of w.tabs) {
       const k = pageKind(t.url);
-      if (k === 'newtab' || k === 'welcome' || !t.url) continue;
+      if (k === 'newtab' || k === 'welcome' || k === 'security' || !t.url) continue;
       if (t.id === w.activeId) active = list.length;
-      list.push({ url: k ? displayUrl(t.url) : t.url, title: t.title || '', favicon: t.favicon || null, pinned: !!t.pinned, muted: !!t.muted });
+      list.push({ url: k ? displayUrl(t.url) : t.url, title: t.title || '', favicon: t.favicon || null, iconColor: t.iconColor || null, pinned: !!t.pinned, muted: !!t.muted });
     }
     return { active, tabs: list };
   }).filter((x) => x.tabs.length) };
@@ -263,7 +280,7 @@ const cl = app.commandLine;
   // both block downloading/updating the Widevine DRM module (Netflix, Exxen, BluTV, Spotify...).
   // Electron has no background services like Safe Browsing, translation or sync anyway.
   'disable-domain-reliability',
-  'disable-breakpad', 'disable-client-side-phishing-detection', 'disable-default-apps',
+  'disable-breakpad', 'disable-default-apps',
   'disable-sync', 'no-pings', 'no-default-browser-check', 'no-first-run',
   'process-per-site'
 ].forEach((s) => cl.appendSwitch(s));
@@ -273,8 +290,8 @@ cl.appendSwitch('enable-features', [
   ...(settings.forceDarkPages ? ['WebContentsForceDark'] : [])
 ].join(','));
 cl.appendSwitch('disable-features', [
-  'BackForwardCache', 'SpareRendererForSitePerProcess', 'Translate', 'MediaRouter',
-  'OptimizationHints', 'AutofillServerCommunication', 'CertificateTransparencyComponentUpdater',
+  'BackForwardCache', 'SpareRendererForSitePerProcess', 'Translate', 'TranslateUI', 'MediaRouter',
+  'OptimizationHints', 'AutofillServerCommunication',
   'BrowsingTopics', 'Fledge', 'InterestGroupStorage', 'PrivacySandboxAdsAPIs',
   'AttributionReportingCrossAppWeb', 'DialMediaRouteProvider',
   'WebAuthenticationConditionalUI', 'WebAuthenticationPasskeysUI'   // passkey popups
@@ -282,8 +299,11 @@ cl.appendSwitch('disable-features', [
 // RAM: full site isolation puts every third-party iframe in its own process (measured: 6 sites, 21 processes, 4.6 GB
 // working set; off: 8 processes, 2.8 GB). Partial isolation like Android Chrome: general sites share processes, login,
 // payment and protected sites (where you sign in) still get their own. Settings > Privacy > full isolation.
+// Disable Chromium's automatic page-translation prompts in every session.
+cl.appendSwitch('disable-translate');
 const ISOLATED_ORIGINS = ['https://accounts.google.com', 'https://login.microsoftonline.com', 'https://login.live.com', 'https://appleid.apple.com',
   'https://github.com', 'https://paypal.com', 'https://facebook.com', 'https://x.com', 'https://discord.com', 'https://web.whatsapp.com'];
+if (settings.strictIsolation) cl.appendSwitch('site-per-process');
 if (!settings.strictIsolation) {
   cl.appendSwitch('disable-site-isolation-trials');
   const prot = (Array.isArray(settings.protectedSites) ? settings.protectedSites : []).filter((x) => /^[a-z0-9.-]+$/i.test(x) && x.includes('.')).map((x) => 'https://' + x);
@@ -379,7 +399,8 @@ function useWin(w) {
   ({ win, ui, ses, tabs, activeId, findOpen, htmlFullscreen, overlayOpen, overlayKind, closedTabs, pushTimer } = w);
   return w;
 }
-const winOfWc = (wc) => { const t = wc && !wc.isDestroyed() ? byWcId.get(wc.id) : null; return t ? t.w : null; };
+const downloadPanels = new Map(), taskPanels = new Map();
+const winOfWc = (wc) => { const t = wc && !wc.isDestroyed() ? byWcId.get(wc.id) : null; return t ? t.w : [...downloadPanels, ...taskPanels].find(([, p]) => p.webContents === wc)?.[0] || null; };
 const allTabs = () => windows.flatMap((w) => w.tabs);
 // Run a job in another window, then switch back to the previous one
 function inWin(w, fn) {
@@ -463,8 +484,45 @@ let mainBlockResolve;
 const mainBlockReady = new Promise((r) => { mainBlockResolve = r; });
 let ghosteryP = null;
 const ensureGhostery = () => ghosteryP || (ghosteryP = loadBlocker());
+// Incognito: Electron cannot load extensions into an in-memory session. With uBO as the engine, private requests are
+// filtered by the already loaded uBO (no second engine, no extra RAM; network rules only, no cosmetic filters).
+// With the light engine, or if uBO is unavailable, the light engine covers the session as before.
+let privateBlock = null;
+function ensureIncognitoBlock(s) {
+  if (privateBlock) return privateBlock;
+  privateBlock = (async () => {
+    if (settings.adblockEngine !== 'hafif' && !process.env.MONDIUM_NO_UBO) {
+      await Promise.race([mainBlockReady, timeout(12000)]);
+      if (uboId) {
+        const background = () => webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.session === mainSes && w.getURL().startsWith(uboPage('background.html')));
+        try { await require('./private-ubo').attachPrivateUBlock(s, background, webContents); return true; }
+        catch (e) { console.warn('Private uBO filter failed, using the light engine:', e.message); }
+      }
+    }
+    blockSession(s);
+    await ensureGhostery();
+    return true;
+  })();
+  return privateBlock;
+}
 const uboPage = (p) => (uboId ? `chrome-extension://${uboId}/${p}` : null);
 
+// Runs inside uBO's background page: same headers as installSessionHeaders, without a session.webRequest listener.
+const uboHeaderScript = () => `(() => {
+  if (self.__mondiumHeaders) return true;
+  self.__mondiumHeaders = true;
+  const loginHost = new RegExp(${JSON.stringify(GOOGLE_LOGIN_HOST.source)}, ${JSON.stringify(GOOGLE_LOGIN_HOST.flags)});
+  const loginUa = ${JSON.stringify(LOGIN_UA)};
+  chrome.webRequest.onBeforeSendHeaders.addListener((d) => {
+    const headers = d.requestHeaders.filter((h) => !/^(dnt|sec-gpc)$/i.test(h.name));
+    headers.push({ name: 'DNT', value: '1' }, { name: 'Sec-GPC', value: '1' });
+    let login = false;
+    try { login = loginHost.test(new URL(d.url).hostname); } catch {}
+    if (login) { const ua = headers.find((h) => /^user-agent$/i.test(h.name)); if (ua) ua.value = loginUa; else headers.push({ name: 'User-Agent', value: loginUa }); }
+    return { requestHeaders: headers };
+  }, { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, ['blocking', 'requestHeaders']);
+  return true;
+})()`;
 async function startUBlock() {
   if (process.env.MONDIUM_NO_UBO || settings.adblockEngine === 'hafif' || !fs.existsSync(path.join(UBO_DIR, 'manifest.json'))) return false;
   await eceReady;   // the extension library must be set up first for the toolbar icon
@@ -473,18 +531,22 @@ async function startUBlock() {
   uboId = e.id;
   // Pages wait until uBO has loaded its filters from cache and is ready (so first requests don't slip through). At most 10 s.
   const t0 = Date.now();
+  const background = () => webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getURL().startsWith(`chrome-extension://${uboId}/background.html`));
   while (Date.now() - t0 < 10000) {
-    const bg = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getURL().startsWith(`chrome-extension://${uboId}/background.html`));
+    const bg = background();
     if (bg) { try { if (await Promise.race([bg.executeJavaScript('!!(self.µBlock && self.µBlock.readyToFilter)'), timeout(1000)])) break; } catch {} }
     await new Promise((r) => setTimeout(r, 100));
   }
+  // After the page has settled: an earlier call can run in a document that is then replaced, losing the listener.
+  const bg = background();
+  if (bg) await Promise.race([bg.executeJavaScript(uboHeaderScript()), timeout(2000)]).catch((err) => console.warn('Could not set privacy headers:', err.message));
   console.log(`uBlock Origin ${e.version} ready (${Date.now() - t0} ms)`);
   return true;
 }
 async function startBlocking() {
   let ok = false;
   try { ok = await startUBlock(); } catch (e) { console.warn('Could not start uBlock Origin, falling back to Mondium engine:', e.message); }
-  if (!ok) { blockSession(mainSes); await ensureGhostery(); }
+  if (!ok) { installSessionHeaders(mainSes); blockSession(mainSes); await ensureGhostery(); }
   mainBlockResolve();
   forEachWin(() => pushState());
 }
@@ -530,6 +592,22 @@ let tldParse = null;
 try { ({ parse: tldParse } = require('tldts-experimental')); } catch {}
 // The page preload asks for the left-edge detection width at startup (TEMPORARY test setting)
 ipcMain.on('mondium-edge-px', (e) => { e.returnValue = settings.sideEdge || 2; });
+// Visible label of a link opened in the background: no renderer has to load just for a tab title.
+ipcMain.on('mondium-link-title', (e, data) => {
+  e.returnValue = false;
+  const tab = byWcId.get(e.sender.id);
+  if (!tab || e.sender.session !== tab.w.ses || !/^https?:/i.test(e.senderFrame?.url || '') || !data || typeof data.url !== 'string' || typeof data.title !== 'string') return;
+  try { if (!/^https?:$/.test(new URL(data.url).protocol)) return; } catch { return; }
+  const title = data.title.replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (title) { tab.linkTitleHint = { url: data.url, title, at: Date.now() }; e.returnValue = true; }
+});
+// Hover zoom: S downloads the image being shown (http(s) pages and URLs only).
+ipcMain.on('mondium-zoom-download', (e, url) => {
+  const tab = byWcId.get(e.sender.id);
+  if (!settings.hoverZoom || !tab || !tab.view || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+  if (!/^https?:/i.test(e.sender.getURL())) return;
+  e.sender.downloadURL(url);
+});
 // Auto-hide mode: the sidebar opens when the mouse reaches the page's left edge (reported by page-preload)
 ipcMain.on('mondium-edge', (e) => {
   const w = winOfWc(e.sender);
@@ -592,12 +670,27 @@ let mainBlockSettled = false;
 mainBlockReady.then(() => { mainBlockSettled = true; });
 setTimeout(() => { mainBlockSettled = true; }, 12000);
 const timeout = (ms) => new Promise((r) => setTimeout(r, ms));
+// Local malicious-domain layer (see threat-protection.js). navigationEpoch stops a slow go() from overriding a newer navigation.
+const threatProtection = createThreatProtection({ root: __dirname, profile: app.getPath('userData') });
+const blockedNavigations = new Map(), trustedThreatHosts = new WeakMap(), navigationEpoch = new WeakMap();
+function showThreatWarning(wc, url) {
+  const tab = byWcId.get(wc.id);
+  if (!tab) return false;
+  if (trustedThreatHosts.get(tab.w)?.has(hostOf(url)) || !threatProtection.isBlocked(url)) return false;
+  navigationEpoch.set(wc, (navigationEpoch.get(wc) || 0) + 1);
+  blockedNavigations.set(wc.id, url);
+  wc.loadURL(SECURITY_URL).catch(() => {});
+  return true;
+}
 async function go(wc, url) {
+  const epoch = (navigationEpoch.get(wc) || 0) + 1;
+  navigationEpoch.set(wc, epoch);
+  if (showThreatWarning(wc, url)) return;
   if (!url.startsWith('file:')) {
     if (wc.session === mainSes) { if (!mainBlockSettled) await Promise.race([mainBlockReady, timeout(3000)]); }
-    else await Promise.race([ensureGhostery(), timeout(3000)]);
+    else await Promise.race([ensureIncognitoBlock(wc.session), timeout(3000)]);
   }
-  if (wc.isDestroyed()) return;
+  if (wc.isDestroyed() || navigationEpoch.get(wc) !== epoch) return;
   const p = prepareUrl(wc, url);
   wc.loadURL(p.url, { userAgent: p.ua }).catch(() => {});
 }
@@ -750,17 +843,29 @@ function endIncognito() {
   for (let i = downloads.length - 1; i >= 0; i--) if (downloads[i].incognito && downloads[i].state !== 'progressing') downloads.splice(i, 1);
 }
 
-function setupSession(ses = mainSes, incognito = false) {
-  ses.setSpellCheckerEnabled(false);
-  ses.setUserAgent(app.userAgentFallback);
-
-  // Thorium: DNT + Global Privacy Control on by default
+// Thorium: DNT + Global Privacy Control on by default.
+// PITFALL: with Electron 45, ANY session.webRequest listener stops all chrome.webRequest events for extensions in that
+// session, so uBlock Origin sees no requests and blocks nothing (filters load fine, counters stay 0). Never call this
+// on the main session while uBO is the engine. There, uboHeaderScript() sets the same headers through uBO's permission.
+function installSessionHeaders(ses) {
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
+    if (details.resourceType === 'mainFrame' && threatProtection.isBlocked(details.url)) {
+      const tab = byWcId.get(details.webContentsId);
+      if (!trustedThreatHosts.get(tab?.w)?.has(hostOf(details.url))) { cb({ cancel: true }); return; }
+    }
     details.requestHeaders['DNT'] = '1';
     if (isGoogleLogin(details.url)) details.requestHeaders['User-Agent'] = LOGIN_UA;
     details.requestHeaders['Sec-GPC'] = '1';
     cb({ requestHeaders: details.requestHeaders });
   });
+}
+function setupSession(ses = mainSes, incognito = false) {
+  if (settings.overlayScrollbar !== false) ses.registerPreloadScript({ id: 'mondium-scrollbar', type: 'frame', filePath: path.join(__dirname, 'overlay-scrollbar.js') });
+  ses.setSpellCheckerEnabled(false);
+  ses.setUserAgent(app.userAgentFallback);
+
+  // The main session gets its headers from uBO's background page, or from startBlocking() if uBO is unavailable.
+  if (incognito) installSessionHeaders(ses);
 
   // ---- Site permissions (like Chrome: the decision is remembered)
   const alwaysAllow = new Set([
@@ -797,18 +902,21 @@ function setupSession(ses = mainSes, incognito = false) {
   });
 
   setupDevices(ses);
-  if (incognito) { blockSession(ses); ensureGhostery(); }   // the main session is decided by startBlocking()
+  if (incognito) ensureIncognitoBlock(ses);   // the main session is decided by startBlocking()
 
   // Downloads: straight to the Downloads folder
   ses.on('will-download', (_e, item, wc) => {
     const ow = winOfWc(wc);
+    if (threatProtection.isBlocked(item.getURL()) && !trustedThreatHosts.get(ow)?.has(hostOf(item.getURL()))) { item.cancel(); if (wc) showThreatWarning(wc, item.getURL()); return; }
     if (ow) useWin(ow);
     const dir = app.getPath('downloads');
     const ext = path.extname(item.getFilename());
     const base = path.basename(item.getFilename(), ext);
-    let file = path.join(dir, item.getFilename()), n = 1;
+    let file = path.join(dir, path.basename(item.getFilename())), n = 1;
     while (fs.existsSync(file)) file = path.join(dir, `${base} (${n++})${ext}`);
-    item.setSavePath(file);
+    // Electron owns the asynchronous save dialog; do not block the main process.
+    if (settings.askDownloadLocation === true) item.setSaveDialogOptions({ defaultPath: file, properties: ['showOverwriteConfirmation', 'createDirectory'] });
+    else item.setSavePath(file);
     const d = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: path.basename(file), file,
       url: item.getURL(), t: Date.now(), received: 0, total: item.getTotalBytes(), state: 'progressing', paused: false, item,
@@ -817,10 +925,15 @@ function setupSession(ses = mainSes, incognito = false) {
     downloads.unshift(d);
     if (downloads.length > DOWNLOADS_MAX) downloads.length = DOWNLOADS_MAX;
     item.on('updated', (_ev, state) => {
+      const selected = item.getSavePath();
+      if (selected) { d.file = selected; d.name = path.basename(selected); }
       d.state = state; d.paused = item.isPaused(); d.received = item.getReceivedBytes(); d.total = item.getTotalBytes();
       forEachWin(() => schedulePush()); notifyPages('downloads');
     });
     item.once('done', (_ev, state) => {
+      const selected = item.getSavePath();
+      if (selected) { d.file = selected; d.name = path.basename(selected); }
+      if (state === 'cancelled' && !selected) { const index = downloads.indexOf(d); if (index >= 0) downloads.splice(index, 1); }   // dialog cancelled: no bogus entry
       d.state = state; d.paused = false; d.received = item.getReceivedBytes(); d.item = null;
       saveDownloads(); forEachWin(() => pushState()); notifyPages('downloads');
       if (state === 'completed') notifyDownload(d);
@@ -983,6 +1096,19 @@ function attachBluetooth(wc) {
 }
 
 // ---------------------------------------------------------------- Tabs
+// ECE observes each added tab by activating it, even when Mondium requested a background tab.
+// Registration must not drive browser selection; restore ECE's active tab afterwards.
+let extensionTabRegistrationDepth = 0;
+function registerExtensionTab(wc, w) {
+  if (!extensions || w.incognito) return;
+  const selectedId = w === W ? activeId : w.activeId;
+  const selected = w.tabs.find((t) => t.id === selectedId);
+  extensionTabRegistrationDepth++;
+  try {
+    extensions.addTab(wc, w.win);
+    if (selected && selected.view) extensions.selectTab(selected.view.webContents);
+  } finally { extensionTabRegistrationDepth--; }
+}
 function toUrl(input) {
   const s = (input || '').trim();
   if (!s) return newtabUrl();
@@ -1012,13 +1138,15 @@ function createView(tab) {
   tab.view = view;
   tab.wcId = wc.id;
   byWcId.set(wc.id, tab);
+  if (tab.pinned && tab.favicon) updateIconColor(tab);
   if (tab.muted) wc.setAudioMuted(true);
   attachBluetooth(wc);
   attachLoginFix(wc);
-  if (extensions && !tab.w.incognito) { try { extensions.addTab(wc, win); } catch (e) { console.warn(e.message); } }
+  if (extensions && !tab.w.incognito) { try { registerExtensionTab(wc, tab.w); } catch (e) { console.warn(e.message); } }
 
   wc.setWindowOpenHandler(({ url, disposition }) => {
     useWin(tab.w);
+    if (showThreatWarning(wc, url)) return { action: 'deny' };
     if (disposition === 'new-window') {
       return {
         action: 'allow',
@@ -1028,6 +1156,8 @@ function createView(tab) {
     newTab(url, disposition === 'background-tab', tab.id);
     return { action: 'deny' };
   });
+  on('will-navigate', (event, url) => { if (showThreatWarning(wc, event.url || url)) event.preventDefault(); });
+  on('will-redirect', (event, url) => { if (showThreatWarning(wc, event.url || url)) event.preventDefault(); });
   on('did-create-window', (child, details) => {
     if (child.setMenu) child.setMenu(null);
     const cwc = child.webContents;
@@ -1042,16 +1172,21 @@ function createView(tab) {
     schedulePush();
   });
   on('page-favicon-updated', (_e, icons) => {
+    if (tab.favicon !== icons?.[0]) tab.iconColor = null;
     tab.favicon = icons && icons[0];
+    if (tab.pinned) updateIconColor(tab);
     if (tab.hist && tab.favicon && tab.hist.url === wc.getURL() && tab.hist.favicon !== tab.favicon) { tab.hist.favicon = tab.favicon; saveHistory(); }
     const bm = settings.bookmarks.find((b) => b.url === tab.url);
     if (bm && tab.favicon && bm.favicon !== tab.favicon) { bm.favicon = tab.favicon; saveSettings(); }
     schedulePush();
   });
   on('did-start-loading', () => { tab.loading = true; schedulePush(); });
-  on('did-stop-loading', () => { tab.loading = false; tab.url = wc.getURL() || tab.url; schedulePush(); });
+  on('did-stop-loading', () => { tab.loading = false; if (!tab.pendingNavigation) tab.url = wc.getURL() || tab.url; schedulePush(); });
   on('did-start-navigation', (e) => {
-    if (e.isMainFrame && !e.isSameDocument) { tab.blocked = 0; tab.favicon = null; }
+    if (e.isMainFrame && !e.isSameDocument) {
+      navigationEpoch.set(wc, (navigationEpoch.get(wc) || 0) + 1); tab.blocked = 0; tab.favicon = null; tab.iconColor = null;
+      if (e.url) showThreatWarning(wc, e.url);   // also catches history navigation; the main session has no header-level check with uBO
+    }
   });
   on('did-navigate', (_e, url, code) => { tab.url = url; if (!code || code < 400) recordVisit(tab, url, wc); pushState(); });
   on('did-navigate-in-page', (_e, url, isMain) => {
@@ -1077,7 +1212,7 @@ function createView(tab) {
   on('enter-html-full-screen', () => { htmlFullscreen = true; win.setFullScreen(true); layout(); });
   on('leave-html-full-screen', () => { htmlFullscreen = false; win.setFullScreen(false); layout(); });
   const wcId = wc.id;
-  on('destroyed', () => { if (byWcId.get(wcId) === tab) byWcId.delete(wcId); });
+  on('destroyed', () => { if (byWcId.get(wcId) === tab) byWcId.delete(wcId); blockedNavigations.delete(wcId); });
   return view;
 }
 
@@ -1120,12 +1255,13 @@ function restoreWindow(data) {
   for (const x of list.slice(0, 100)) {
     tabs.push({
       id: nextId++, w: W, view: null, url: toUrl(x.url), title: String(x.title || hostOf(x.url)).slice(0, 300),
-      favicon: typeof x.favicon === 'string' ? x.favicon : null, loading: false, lastActive: Date.now(),
+      favicon: typeof x.favicon === 'string' ? x.favicon : null, iconColor: /^#[0-9a-f]{6}$/i.test(x.iconColor || '') ? x.iconColor : null, loading: false, lastActive: Date.now(),
       blocked: 0, audible: false, pinned: !!x.pinned, muted: !!x.muted
     });
   }
   if (!tabs.length) return false;
   orderPinned();
+  for (const t of tabs) if (t.pinned && t.favicon) updateIconColor(t);
   const a = Math.min(Math.max(Number(data.active) || 0, 0), tabs.length - 1);
   activateTab(tabs[a].id);
   return true;
@@ -1133,6 +1269,8 @@ function restoreWindow(data) {
 
 // History / downloads: switch to its tab if open, open in place if on a new tab page, else a new tab
 function openPage(url) {
+  if (baseOf(url) === DOWNLOADS_URL) { showDownloadsPanel(); return; }
+  if (baseOf(url) === TASKS_URL) { showTaskManager(); return; }
   if (W && W.incognito) {
     const n = lastWin(true);
     if (n) { useWin(n); n.win.focus(); } else createWindow();
@@ -1147,16 +1285,77 @@ function openPage(url) {
 // Pinned tabs always on the left (sort is stable, the rest keep their order)
 const orderPinned = () => tabs.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
-function newTab(url, background = false, openerId = null, at = -1) {
+// Deferred background tabs: fetch only the HTML title; no renderer, scripts, images or media until the tab is selected.
+const titleQueue = [];
+let titleJobs = 0;
+function queueTabTitle(tab) {
+  if (!/^https?:/i.test(tab.url) || threatProtection.isBlocked(tab.url)) return;
+  const known = settings.bookmarks.find((b) => b.url === tab.url) || history.find((h) => h.url === tab.url);
+  if (known && known.title) { tab.title = known.title; return; }
+  titleQueue.push(tab);
+  drainTabTitles();
+}
+function drainTabTitles() {
+  while (titleJobs < 3 && titleQueue.length) {
+    const tab = titleQueue.shift();
+    if (!tab.w.tabs.includes(tab) || (tab.view && !tab.pendingNavigation)) continue;
+    titleJobs++;
+    readTabTitle(tab).finally(() => { titleJobs--; drainTabTitles(); });
+  }
+}
+async function readTabTitle(tab) {
+  const controller = new AbortController();
+  tab.titleRequest = controller;
+  const timer = setTimeout(() => controller.abort(), 6000);
+  const url = tab.url;
+  let reader;
+  try {
+    const response = await tab.w.ses.fetch(url, { signal: controller.signal });
+    if (!response.ok || !/text\/html|application\/xhtml/i.test(response.headers.get('content-type') || '')) return;
+    reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let html = '', bytes = 0, match;
+    while (bytes < 256 * 1024) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.length;
+      html += decoder.decode(chunk.value, { stream: true });
+      match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
+      if (match || /<\/head\s*>/i.test(html)) break;
+    }
+    if (match && tab.url === url && tab.w.tabs.includes(tab) && (!tab.view || tab.pendingNavigation)) {
+      const entities = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' };
+      tab.title = match[1].replace(/&#(x[0-9a-f]+|[0-9]+);|&(amp|quot|apos|lt|gt|nbsp);/gi, (all, n, named) => {
+        if (named) return entities[named.toLowerCase()];
+        const code = n[0].toLowerCase() === 'x' ? parseInt(n.slice(1), 16) : parseInt(n, 10);
+        return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
+      }).replace(/\s+/g, ' ').trim().slice(0, 300) || tab.title;
+      if (windows.includes(tab.w)) inWin(tab.w, () => pushState());
+    }
+  } catch {} finally {
+    if (reader) reader.cancel().catch(() => {});
+    controller.abort(); clearTimeout(timer);
+    if (tab.titleRequest === controller) tab.titleRequest = null;
+  }
+}
+
+function newTab(url, background = false, openerId = null, at = -1, requireView = false) {
   const tab = {
     id: nextId++, w: W, view: null, url: toUrl(url), title: 'Yeni Sekme', favicon: null,
-    loading: true, lastActive: Date.now(), blocked: 0, audible: false, pinned: false, muted: false
+    loading: false, lastActive: Date.now(), blocked: 0, audible: false, pinned: false, muted: false
   };
   const openerIdx = openerId ? tabs.findIndex((t) => t.id === openerId) : -1;
   if (at >= 0) tabs.splice(Math.min(at, tabs.length), 0, tab);
   else if (openerIdx >= 0) tabs.splice(openerIdx + 1, 0, tab); else tabs.push(tab);
   orderPinned();
-  go(createView(tab).webContents, tab.url);
+  // Background links are URL records only; title metadata is fetched without a renderer or media.
+  // chrome.tabs.create requires a WebContents ID, so keep its background view blank until selected.
+  if (background && activeId !== null) {
+    tab.title = isInternal(tab.url) ? 'Yeni Sekme' : hostOf(tab.url);
+    if (requireView) { tab.pendingNavigation = true; createView(tab); }
+    const opener = getTab(openerId), hint = opener?.linkTitleHint;
+    if (hint && hint.url === tab.url && Date.now() - hint.at < 2000) { tab.title = hint.title; opener.linkTitleHint = null; } else queueTabTitle(tab);
+  }
   if (!background || activeId === null) activateTab(tab.id); else pushState();
   if (!background && isNewtab(tab.url)) { const w = W; setTimeout(() => inWin(w, () => focusUrl()), 50); }
   return tab;
@@ -1176,13 +1375,16 @@ function activateTab(id) {
     if (findOpen) closeFind();
   }
   activeId = id;
+  if (tab.titleRequest) tab.titleRequest.abort();
   tab.lastActive = Date.now();
   if (!tab.view) { createView(tab); go(tab.view.webContents, tab.url); }
+  else if (tab.pendingNavigation) { tab.pendingNavigation = false; go(tab.view.webContents, tab.url); }
   const keepSide = overlayOpen && overlayKind === 'side';
   if (overlayOpen && !keepSide) closeOverlay();
   win.contentView.addChildView(tab.view);
   if (W) W.uiAbove = false;
-  if (keepSide) raiseUi();
+  if (keepSide || W.sideClosing) raiseUi();
+  if (keepSide) W.sideHoldUntil = Date.now() + 500;
   layout();
   tab.view.webContents.focus();
   if (extensions && !W.incognito) { try { extensions.selectTab(tab.view.webContents); } catch {} }
@@ -1202,7 +1404,7 @@ function destroyView(tab) {
 let closedTabs = [];
 function rememberClosed(tab, index) {
   let u = tab.url;
-  try { if (tab.view && !tab.view.webContents.isDestroyed()) u = tab.view.webContents.getURL() || u; } catch {}
+  try { if (tab.view && !tab.pendingNavigation && !tab.view.webContents.isDestroyed()) u = tab.view.webContents.getURL() || u; } catch {}
   const k = pageKind(u);
   if (!u || k === 'newtab' || k === 'welcome') return;
   closedTabs.unshift({ url: k ? displayUrl(u) : u, title: tab.title || u, favicon: tab.favicon || null, index, pinned: !!tab.pinned });
@@ -1214,10 +1416,87 @@ function reopenClosed(n = 0) {
   const t = newTab(c.url, false, null, c.index);
   if (c.pinned) { t.pinned = true; orderPinned(); pushState(); }
 }
+// Accent color of a pinned tab's tile, taken from its favicon. Bounded download and image size, three jobs at most.
+const iconColors = new Map(), iconJobs = [];
+let activeIconJobs = 0;
+function runIconJob(fn) { return new Promise((resolve) => { iconJobs.push({ fn, resolve }); drainIconJobs(); }); }
+function drainIconJobs() {
+  while (activeIconJobs < 3 && iconJobs.length) {
+    const { fn, resolve } = iconJobs.shift();
+    activeIconJobs++;
+    Promise.resolve().then(fn).then(resolve, () => resolve(null)).finally(() => { activeIconJobs--; drainIconJobs(); });
+  }
+}
+async function updateIconColor(tab) {
+  if (!vertical() || !tab.pinned || !tab.favicon || !/^(https?:|data:image\/)/i.test(tab.favicon)) return;
+  const url = tab.favicon;
+  const cacheKey = (tab.w.incognito ? 'private:' : 'main:') + url;
+  let pendingColor = iconColors.get(cacheKey);
+  if (!pendingColor) {
+    const job = runIconJob(async () => {
+      if (!windows.includes(tab.w) || !tab.w.tabs.includes(tab) || !tab.pinned || tab.favicon !== url) return null;
+      try {
+        let image, imageData;
+        if (url.startsWith('data:image/')) {
+          if (url.length > 180 * 1024) return null;
+          imageData = url;
+          const encoded = url.split(',')[1];
+          if (/;base64,/i.test(url)) assertImageLimits(Buffer.from(encoded, 'base64'));
+          image = nativeImage.createFromDataURL(url);
+        } else {
+          const r = await tab.w.ses.fetch(url, { signal: AbortSignal.timeout(4000) });
+          if (!r.ok || Number(r.headers.get('content-length')) > 128 * 1024) return null;
+          const bytes = await readResponseBytes(r, 128 * 1024);
+          imageData = 'data:' + (r.headers.get('content-type') || 'image/x-icon').split(';')[0] + ';base64,' + Buffer.from(bytes).toString('base64');
+          assertImageLimits(Buffer.from(bytes));
+          image = nativeImage.createFromBuffer(Buffer.from(bytes));
+        }
+        let pixels;
+        if (!image.isEmpty()) pixels = image.resize({ width: 20, height: 20 }).toBitmap();
+        else if (tab.w.ui && !tab.w.ui.webContents.isDestroyed()) {
+          // Chromium can decode favicon formats (ICO/SVG) that nativeImage cannot.
+          const rgba = await tab.w.ui.webContents.executeJavaScript('(' + (async (src) => {
+            const image = new Image(); image.src = src; await image.decode();
+            const canvas = document.createElement('canvas'); canvas.width = canvas.height = 20;
+            const context = canvas.getContext('2d', { willReadFrequently: true }); context.drawImage(image, 0, 0, 20, 20);
+            return Array.from(context.getImageData(0, 0, 20, 20).data);
+          }).toString() + ')(' + JSON.stringify(imageData) + ')');
+          pixels = Buffer.from(rgba);
+          for (let i = 0; i < pixels.length; i += 4) { const r = pixels[i]; pixels[i] = pixels[i + 2]; pixels[i + 2] = r; }
+        } else return null;
+        const buckets = new Map(), neutral = new Map();
+        for (let i = 0; i < pixels.length; i += 4) {
+          const b = pixels[i], g = pixels[i + 1], r = pixels[i + 2], alpha = pixels[i + 3] / 255;
+          const hi = Math.max(r, g, b), lo = Math.min(r, g, b), saturation = hi ? (hi - lo) / hi : 0;
+          if (alpha >= 0.5 && hi >= 45) { const v = Math.round((r + g + b) / 3 / 16) * 16; neutral.set(v, (neutral.get(v) || 0) + alpha); }
+          if (alpha < 0.5 || hi < 45 || saturation < 0.2) continue;
+          const key = [r >> 5, g >> 5, b >> 5].join(','); const v = buckets.get(key) || { weight: 0, r: 0, g: 0, b: 0 };
+          const weight = saturation * alpha; v.weight += weight; v.r += r * weight; v.g += g * weight; v.b += b * weight; buckets.set(key, v);
+        }
+        const c = [...buckets.values()].sort((x, y) => y.weight - x.weight)[0];
+        if (c) return '#' + [c.r, c.g, c.b].map((v) => Math.round(v / c.weight).toString(16).padStart(2, '0')).join('');
+        const gray = [...neutral].sort((x, y) => y[1] - x[1])[0];
+        return gray ? '#' + Math.max(96, Math.min(224, gray[0])).toString(16).padStart(2, '0').repeat(3) : '#808080';
+      } catch { return null; }
+    });
+    pendingColor = job;
+    iconColors.set(cacheKey, job);
+    if (iconColors.size > 128) iconColors.delete(iconColors.keys().next().value);
+  }
+  const color = await pendingColor;
+  if (!color && iconColors.get(cacheKey) === pendingColor) iconColors.delete(cacheKey);   // a failed request must not lock the tab to the fallback color
+  if (tab.favicon === url && tab.w.tabs.includes(tab)) { if (color) tab.iconColor = color; if (windows.includes(tab.w)) inWin(tab.w, () => pushState()); }
+}
+function revealPinChange() {
+  if (!vertical() || !settings.verticalAutoHide) return;
+  clearTimeout(W.sideCloseTimer); W.sideClosing = false;
+  openSide(); W.sideHoldUntil = Date.now() + 1400;
+}
 function togglePin(id) {
   const t = getTab(id);
   if (!t) return;
   t.pinned = !t.pinned;
+  if (t.pinned) updateIconColor(t);
   const i = tabs.indexOf(t);
   tabs.splice(i, 1);
   const firstFree = tabs.filter((x) => x.pinned).length;
@@ -1285,19 +1564,35 @@ function closeTab(id) {
   if (i < 0) return;
   rememberClosed(tabs[i], i);
   const [tab] = tabs.splice(i, 1);
+  if (tab.titleRequest) tab.titleRequest.abort();
   destroyView(tab);
   if (tabs.length === 0) { if (win) win.close(); return; }
   if (activeId === id) { activeId = null; activateTab(tabs[Math.min(i, tabs.length - 1)].id); }
   else pushState();
 }
 
+function sleepTab(id) {
+  const tab = allTabs().find((t) => t.id === Number(id));
+  if (!tab || !tab.view) return false;
+  useWin(tab.w);
+  if (activeId === tab.id) {
+    const next = tabs.find((t) => t !== tab);
+    if (!next) return false;
+    activateTab(next.id);
+  }
+  if (tab.titleRequest) tab.titleRequest.abort();
+  if (!tab.pendingNavigation) tab.url = tab.view.webContents.getURL() || tab.url;
+  destroyView(tab); tab.pendingNavigation = false; tab.loading = false; tab.audible = false;
+  pushState();
+  return true;
+}
 function sleepIdleTabs(force = false) {
   if (force !== true && (!settings.sleepTabs || !settings.sleepMinutes)) return;
   const limit = force === true ? 0 : settings.sleepMinutes * 60e3;
   forEachWin(() => {
     let changed = false;
     for (const t of tabs) {
-      if (t.id === activeId || !t.view || t.audible || Date.now() - t.lastActive < limit) continue;
+      if (t.id === activeId || !t.view || t.pendingNavigation || t.audible || Date.now() - t.lastActive < limit) continue;
       const u = t.view.webContents.getURL();
       if (u) t.url = u;
       destroyView(t);
@@ -1324,6 +1619,16 @@ function toggleBookmarksBar() { settings.bookmarksBar = !settings.bookmarksBar; 
 const vertical = () => !!settings.verticalTabs && !htmlFullscreen;
 function layout() {
   if (!win || !ui) return;
+  // Full-page F11 and HTML fullscreen: the page takes the whole window, the browser UI is hidden
+  const fullscreen = htmlFullscreen || win.isFullScreen();
+  ui.setVisible(!fullscreen);
+  if (fullscreen) {
+    const { width, height } = win.getContentBounds();
+    ui.setBounds({ x: 0, y: 0, width, height: 0 });
+    const t = activeTab();
+    if (t?.view) { t.view.setBounds({ x: 0, y: 0, width, height }); win.contentView.addChildView(t.view); if (W) W.uiAbove = false; }
+    return;
+  }
   const { width, height } = win.getContentBounds();
   const t = activeTab();
   if (vertical()) {
@@ -1334,7 +1639,7 @@ function layout() {
     ui.setBounds({ x: 0, y: 0, width, height });
     if (t && t.view) {
       t.view.setBounds({ x: sw, y: top, width: Math.max(0, width - sw), height: Math.max(0, height - top) });
-      if (!overlayOpen && W && W.uiAbove) { win.contentView.addChildView(t.view); W.uiAbove = false; }   // page back on top
+      if (!overlayOpen && W && !W.sideClosing && W.uiAbove) { win.contentView.addChildView(t.view); W.uiAbove = false; }   // page back on top
     }
     return;
   }
@@ -1349,23 +1654,58 @@ function raiseUi() { win.contentView.addChildView(ui); if (W) W.uiAbove = true; 
 function setVerticalTabs(on) {
   settings.verticalTabs = !!on;
   saveSettings();
+  if (settings.verticalTabs) for (const t of allTabs()) if (t.pinned && !t.iconColor) updateIconColor(t);
   forEachWin(() => { if (overlayOpen) closeOverlay(false); paintFrame(); layout(); pushState(); });
   broadcastPages();
+}
+function animateSideLayout() {
+  const w = W;
+  clearTimeout(w.sideCloseTimer);
+  w.sideClosing = true;
+  raiseUi();
+  layout(); pushState();
+  w.sideCloseTimer = setTimeout(() => {
+    if (!windows.includes(w) || w.win.isDestroyed()) return;
+    inWin(w, () => { w.sideClosing = false; layout(); });
+  }, 220);
 }
 function toggleAutoHide() {
   if (!settings.verticalTabs) return;
   settings.verticalAutoHide = !settings.verticalAutoHide;
   saveSettings();
-  forEachWin(() => { if (overlayOpen && overlayKind === 'side') closeOverlay(false); layout(); pushState(); });
+  forEachWin(() => {
+    if (overlayKind === 'side') { overlayOpen = false; overlayKind = null; send('side-reveal', false); }
+    animateSideLayout();
+  });
+  notifyPages('settings');
 }
 // In auto-hide mode the sidebar opens when the mouse hits the left edge (focus stays on the page)
 function openSide() {
-  if (!win || !ui || !vertical() || !settings.verticalAutoHide || overlayOpen) return;
+  if (!win || !ui || !vertical() || !settings.verticalAutoHide || overlayOpen) return;   // may reopen while the close animation runs
+  clearTimeout(W.sideCloseTimer);
+  W.sideClosing = false;
   overlayOpen = true;
   overlayKind = 'side';
   raiseUi();
   layout();
   send('side-reveal', true);
+  W.sideHoldUntil = Date.now() + 500;
+  // Native cursor tracking owns dismissal: page repaints and DOM replacement cannot close the sidebar by accident.
+  const w = W;
+  clearInterval(w.sideWatch);
+  w.sideWatch = setInterval(() => {
+    if (!windows.includes(w) || w.win.isDestroyed()) { clearInterval(w.sideWatch); return; }
+    inWin(w, () => {
+      if (!overlayOpen || overlayKind !== 'side') { clearInterval(w.sideWatch); return; }
+      if (w.tabDragging) return;
+      const p = screen.getCursorScreenPoint(), b = win.getContentBounds();
+      const x = p.x - b.x, y = p.y - b.y;
+      const top = TOOLBAR + (settings.bookmarksBar ? BOOKMARKS : 0) + (findOpen ? FINDBAR : 0);
+      const inside = x >= 0 && x <= sideWidth(b.width) + 8 && y >= top && y < b.height;
+      if (inside) w.sideHoldUntil = Date.now() + 250;
+      else if (Date.now() >= w.sideHoldUntil) closeOverlay(false);
+    });
+  }, 50);
 }
 
 function send(ch, data) { if (ui && !ui.webContents.isDestroyed()) ui.webContents.send(ch, data); }
@@ -1389,7 +1729,7 @@ function pushState() {
   send('state', {
     tabs: tabs.map((x) => ({
       id: x.id, title: x.title, favicon: x.favicon, loading: x.loading && !!x.view,
-      sleeping: !x.view, audible: x.audible, pinned: !!x.pinned, muted: !!x.muted, volume: x.volume || 100
+      iconColor: x.iconColor || null, sleeping: !x.view || !!x.pendingNavigation, audible: x.audible, pinned: !!x.pinned, muted: !!x.muted, volume: x.volume || 100
     })),
     activeId,
     activeWcId: wc ? wc.id : -1,
@@ -1478,6 +1818,14 @@ function omniSuggest(text) {
   }
   return { items, inline };
 }
+function openNewTabPrompt(fallback) {
+  if (settings.newTabPrompt !== true) { if (fallback) fallback(); else newTab(''); return; }
+  if (!win || !ui || overlayKind === 'prompt') return;
+  if (overlayOpen) closeOverlay(false);
+  overlayOpen = true; overlayKind = 'newtab';
+  raiseUi(); layout(); ui.webContents.focus();
+  send('newtab-prompt', { searchName: (SEARCH_ENGINES[settings.searchEngine] || SEARCH_ENGINES.google).name });
+}
 function openOmni() {
   if (!win || !ui || (overlayOpen && overlayKind === 'omni')) return;
   if (overlayOpen) closeOverlay(false);
@@ -1510,10 +1858,12 @@ ipcMain.on('ui', (e, cmd, arg) => {
     case 'reload': withActive((wc) => wc.reload()); break;
     case 'stop': withActive((wc) => wc.stop()); break;
     case 'home': goHome(); break;
-    case 'new-tab': newTab(''); break;
+    case 'new-tab': openNewTabPrompt(); break;
     case 'prompt-answer': answerPrompt(arg); break;
     case 'side-reveal': openSide(); break;
-    case 'side-hide': if (overlayKind === 'side') closeOverlay(false); break;
+    case 'side-hide': break;   // native cursor tracking owns sidebar dismissal
+    case 'tab-drag-start': W.tabDragging = true; if (!overlayOpen) { overlayOpen = true; overlayKind = 'tabdrag'; raiseUi(); layout(); } break;
+    case 'tab-drag-end': W.tabDragging = false; W.sideHoldUntil = Date.now() + 500; if (overlayKind === 'tabdrag') closeOverlay(false); break;
     case 'side-drag-start':   // width drag: UI is raised so it keeps getting events even when the mouse moves over the page
       if (vertical() && !settings.verticalAutoHide && !overlayOpen) { overlayOpen = true; overlayKind = 'sidedrag'; raiseUi(); layout(); }
       break;
@@ -1559,6 +1909,9 @@ ipcMain.on('ui', (e, cmd, arg) => {
       break;
     }
     case 'omni-close': if (overlayKind === 'omni') closeOverlay(false); break;
+    case 'newtab-query': if (overlayKind === 'newtab' && typeof arg === 'string') send('newtab-results', { q: arg, ...omniSuggest(arg) }); break;
+    case 'newtab-submit': if (overlayKind === 'newtab' && typeof arg === 'string' && arg.trim()) { closeOverlay(false); newTab(arg.trim()); } break;
+    case 'newtab-cancel': if (overlayKind === 'newtab') closeOverlay(); break;
     case 'navigate-tab': if (arg) newTab(arg, false, activeId); break;
   }
 });
@@ -1574,7 +1927,7 @@ function handleShortcut(input) {
   if (ctrl && input.shift && k === 't') { reopenClosed(); return true; }
   if (ctrl && input.shift && k === 'n') { newWindow(true); return true; }               // new incognito window
   if (ctrl && k === 'n') { newWindow(false); return true; }                              // new window
-  if (ctrl && k === 't') { newTab(''); return true; }
+  if (ctrl && k === 't') { openNewTabPrompt(); return true; }
   if (ctrl && input.shift && (k === 'w' || k === 'q')) { if (win) win.close(); return true; }
   if ((ctrl && k === 'w') || (ctrl && k === 'f4')) { if (activeId) closeTab(activeId); return true; }
   if (ctrl && (k === 'pagedown' || k === 'pageup')) {
@@ -1607,6 +1960,7 @@ function handleShortcut(input) {
   if (ctrl && k === 'tab') {
     const i = tabs.findIndex((t) => t.id === activeId), n = tabs.length;
     if (n > 1) activateTab(tabs[(i + (input.shift ? n - 1 : 1)) % n].id);
+    if (vertical() && settings.verticalAutoHide) { openSide(); W.sideHoldUntil = Date.now() + 1200; }
     return true;
   }
   if (input.alt && k === 'arrowleft') { goBack(); return true; }
@@ -1673,7 +2027,10 @@ function closeOverlay(refocus = true) {
     // The revealed sidebar slides back left as it came; the UI stays on top until the animation ends
     send('side-reveal', false);
     const w = W;
-    setTimeout(() => inWin(w, () => layout()), 190);
+    clearInterval(w.sideWatch);
+    w.sideClosing = true;
+    clearTimeout(w.sideCloseTimer);
+    w.sideCloseTimer = setTimeout(() => { if (windows.includes(w) && !w.win.isDestroyed()) inWin(w, () => { w.sideClosing = false; layout(); }); }, 220);
     return;
   }
   layout();
@@ -1764,35 +2121,37 @@ function menuAction(id, arg) {
 
 // ---------------------------------------------------------------- Task manager (how much RAM each tab uses)
 const MB = (kb) => Math.round(kb / 1024);
-function showTaskManager() {
+function showTaskManager() { return showInternalPanel(TASKS_URL, 'Görev yöneticisi', taskPanels, 1000, 640); }
+function taskManagerData() {
   const metrics = app.getAppMetrics();
   const byPid = new Map(metrics.map((m) => [m.pid, m]));
-  const memOf = (m) => (m && m.memory ? (m.memory.privateBytes || m.memory.workingSetSize || 0) : 0);
-  const seen = new Set();
-  const lines = [];
-  let total = 0;
+  const groups = new Map(), assigned = new Set();
+  const memory = (m) => (m && m.memory ? m.memory.privateBytes || m.memory.workingSetSize || 0 : 0);
+  const add = (key, label, row) => {
+    if (!groups.has(key)) groups.set(key, { key, label, rows: [], memory: 0, cpu: 0 });
+    const g = groups.get(key);
+    g.rows.push(row);
+    if (!row.shared) { g.memory += row.memory; g.cpu += row.cpu; }
+  };
   for (const t of allTabs()) {
-    const title = (t.w && t.w.incognito ? '(Gizli) ' : '') + (t.title || 'Sekme').slice(0, 45);
-    if (!t.view) { lines.push(`Sekme: ${title}  -  uyutuldu (0 MB)`); continue; }
-    const pid = t.view.webContents.getOSProcessId();
-    if (seen.has(pid)) { lines.push(`Sekme: ${title}  -  aynı süreci paylaşıyor`); continue; }
-    seen.add(pid);
-    const kb = memOf(byPid.get(pid));
-    total += kb;
-    lines.push(`Sekme: ${title}  -  ${MB(kb)} MB`);
+    const sleeping = !t.view || !!t.pendingNavigation;
+    const pid = sleeping ? null : t.view.webContents.getOSProcessId();
+    const m = byPid.get(pid), shared = pid != null && assigned.has(pid);
+    if (pid != null) assigned.add(pid);
+    add('tabs', 'Sekmeler', { id: t.id, title: (t.w.incognito ? '(Gizli) ' : '') + (t.title || t.url), icon: t.favicon || null, pid, sleeping, shared, memory: sleeping || shared ? 0 : memory(m), cpu: sleeping || shared ? 0 : (m?.cpu?.percentCPUUsage || 0), canSleep: !sleeping && !(t.w === W && t.id === activeId), tab: true });
   }
-  const names = { Browser: 'Tarayıcı (ana süreç)', GPU: 'GPU süreci', Utility: 'Yardımcı süreç', Tab: 'Arayüz / uzantı' };
+  const uiPids = new Set(windows.filter((w) => w.ui && !w.ui.webContents.isDestroyed()).map((w) => w.ui.webContents.getOSProcessId()));
+  const processes = webContents.getAllWebContents();
   for (const m of metrics) {
-    if (seen.has(m.pid)) continue;
-    const kb = memOf(m);
-    total += kb;
-    lines.push(`${names[m.type] || m.type}${m.name ? ' (' + m.name + ')' : ''}  -  ${MB(kb)} MB`);
+    if (assigned.has(m.pid)) continue;
+    const hosts = processes.filter((wc) => !wc.isDestroyed() && wc.getOSProcessId() === m.pid);
+    const extension = hosts.find((wc) => wc.getURL().startsWith('chrome-extension:'));
+    const key = uiPids.has(m.pid) ? 'ui' : extension ? 'extensions' : m.type === 'Browser' ? 'browser' : m.type === 'GPU' ? 'gpu' : m.type === 'Utility' ? 'utility' : 'ui';
+    const names = { ui: 'Arayüz', extensions: 'Uzantılar', browser: 'Tarayıcı', gpu: 'GPU', utility: 'Yardımcı süreçler' };
+    const title = extension ? (extension.getTitle() || hostOf(extension.getURL())) : m.name || m.serviceName || names[key];
+    add(key, names[key], { id: 'process-' + m.pid, title, pid: m.pid, memory: memory(m), cpu: m.cpu?.percentCPUUsage || 0, shared: false, tab: false });
   }
-  dialog.showMessageBox(win, {
-    type: 'info', title: 'Görev yöneticisi', buttons: ['Arka plan sekmelerini şimdi uyut', 'Kapat'], defaultId: 1, cancelId: 1,
-    message: `Toplam bellek: ${MB(total)} MB`,
-    detail: lines.join('\n')
-  }).then((r) => { if (r.response === 0) sleepIdleTabs(true); });
+  return { total: metrics.reduce((n, m) => n + memory(m), 0), groups: [...groups.values()], at: Date.now() };
 }
 
 // ---------------------------------------------------------------- Extensions
@@ -1859,7 +2218,7 @@ function listExtensions() {
   return out.sort((x, y) => x.name.localeCompare(y.name, 'tr'));
 }
 async function loadExt(dir) {
-  const e = await extApi().loadExtension(dir, { allowFileAccess: true });
+  const e = await extApi().loadExtension(dir, { allowFileAccess: false });
   if (e && e.manifest && e.manifest.manifest_version === 3 && e.manifest.background && e.manifest.background.service_worker) {
     mainSes.serviceWorkers.startWorkerForScope(`chrome-extension://${e.id}`).catch(() => {});
   }
@@ -1928,17 +2287,17 @@ async function setupExtensions() {
               return [same.view.webContents, win];
             }
           }
-          const t = newTab(u, details.active === false, activeId);
+          const t = newTab(u, details.active === false, activeId, -1, true);
           return [t.view.webContents, win];
         },
-        selectTab: (wc) => { if (!wc || wc.isDestroyed()) return; const t = byWcId.get(wc.id); if (t) { useWin(t.w); activateTab(t.id); } },
+        selectTab: (wc) => { if (extensionTabRegistrationDepth || !wc || wc.isDestroyed()) return; const t = byWcId.get(wc.id); if (t) { useWin(t.w); activateTab(t.id); } },
         // The library also calls this for closed/slept tabs; only close live tabs the extension asked for
         removeTab: (wc) => { if (!wc || wc.isDestroyed()) return; const t = byWcId.get(wc.id); if (t && t.w && t.w.win) { useWin(t.w); closeTab(t.id); } },
         createWindow: async (details) => { useWin(lastWin(true)); [].concat(details.url || '').forEach((u) => newTab(u)); return win; },
         removeWindow: () => {}
       });
       ECE.handleCRXProtocol(ses);
-      for (const t of allTabs()) if (t.view && !t.w.incognito) { try { extensions.addTab(t.view.webContents, t.w.win); } catch {} }
+      for (const t of allTabs()) if (t.view && !t.w.incognito) { try { registerExtensionTab(t.view.webContents, t.w); } catch {} }
       forEachWin((w) => { if (!w.incognito && activeTab() && activeTab().view) { try { extensions.selectTab(activeTab().view.webContents); } catch {} } });
     } catch (e) {
       console.warn('Could not start extension support:', e.message);
@@ -1950,6 +2309,7 @@ async function setupExtensions() {
     try {
       await CWS.installChromeWebStore({
         session: ses,
+        loadExtensionOptions: { allowFileAccess: false },
         loadExtensions: false,     // we load them ourselves: disabled extensions are skipped
         // Like Chrome: a bubble below the address bar lists what the extension can do
         beforeInstall: async (details) => {
@@ -2246,24 +2606,36 @@ function showBookmarkMenu(arg) {
 
 function fmtBytes(b) { return b > 1 << 30 ? (b / (1 << 30)).toFixed(1) + ' GB' : b > 1 << 20 ? (b / (1 << 20)).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'; }
 
-function showDownloadsMenu(pos) {
-  const items = downloads.slice(0, 10).map((d) => {
-    const st = d.state === 'completed' ? fmtBytes(d.total || d.received)
-      : d.state === 'progressing' ? (d.total ? Math.round((d.received / d.total) * 100) + '%' : fmtBytes(d.received))
-      : d.state === 'cancelled' ? 'iptal edildi' : 'başarısız';
-    return {
-      label: `${d.name}  -  ${st}`,
-      submenu: [
-        { label: 'Aç', enabled: d.state === 'completed', click: () => shell.openPath(d.file) },
-        { label: 'Klasörde göster', enabled: d.state === 'completed', click: () => shell.showItemInFolder(d.file) },
-        { label: 'İptal et', enabled: d.state === 'progressing' && !!d.item, click: () => d.item && d.item.cancel() }
-      ]
-    };
+function showDownloadsMenu() { return showDownloadsPanel(); }
+function showDownloadsPanel() { return showInternalPanel(DOWNLOADS_URL, 'İndirilenler', downloadPanels, 740, 580); }
+// Centered modal windows for downloads and the task manager. Their renderer exists only while open (no idle RAM).
+function showInternalPanel(url, title, panels, preferredWidth, preferredHeight) {
+  const owner = W;
+  if (!owner || owner.win.isDestroyed()) return;
+  const existing = panels.get(owner);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return existing; }
+  const bounds = owner.win.getBounds(), work = screen.getDisplayMatching(bounds).workArea;
+  const width = Math.min(preferredWidth, work.width - 32), height = Math.min(preferredHeight, work.height - 48);
+  const x = Math.max(work.x, Math.min(work.x + work.width - width, Math.round(bounds.x + (bounds.width - width) / 2)));
+  const y = Math.max(work.y, Math.min(work.y + work.height - height, Math.round(bounds.y + (bounds.height - height) / 2)));
+  const panel = new BrowserWindow({
+    parent: owner.win, modal: !process.env.MONDIUM_TEST_DISPLAY, skipTaskbar: true, show: false, frame: false, width, height, x, y, minWidth: 360, minHeight: 300,
+    title: T(title), icon: path.join(__dirname, 'icon.png'), backgroundColor: effectiveTheme().page || (nativeTheme.shouldUseDarkColors ? '#202124' : '#ffffff'), autoHideMenuBar: true,
+    webPreferences: { session: owner.ses, preload: path.join(__dirname, 'page-preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false }
   });
-  if (!items.length) items.push({ label: 'İndirme yok', enabled: false });
-  items.push({ type: 'separator' }, { label: 'Tüm indirilenler', ...hint('Ctrl+J'), click: () => openPage(DOWNLOADS_URL) },
-    { label: 'İndirilenler klasörünü aç', click: () => shell.openPath(app.getPath('downloads')) });
-  popAt(items, pos);
+  panels.set(owner, panel);
+  const navigate = (to) => { if (/^https?:/i.test(to)) inWin(owner, () => newTab(to)); panel.close(); };
+  panel.webContents.setWindowOpenHandler(({ url: to }) => { navigate(to); return { action: 'deny' }; });
+  const pageUrl = baseOf(url);
+  panel.webContents.on('will-navigate', (e, to) => { if (baseOf(to) !== pageUrl) { e.preventDefault(); navigate(to); } });
+  // Enable and focus the owner before Windows destroys the modal HWND. Otherwise
+  // Windows can briefly activate the previously focused external application.
+  const restoreOwner = () => { if (!quitting && owner.win && !owner.win.isDestroyed() && owner.win.isVisible()) { owner.win.setEnabled(true); owner.win.moveTop(); owner.win.focus(); } };
+  panel.on('close', restoreOwner);
+  panel.once('ready-to-show', () => { if (process.env.MONDIUM_TEST_DISPLAY) panel.showInactive(); else panel.show(); });
+  panel.on('closed', () => { panels.delete(owner); restoreOwner(); });
+  panel.loadURL(url + '?popup=1');
+  return panel;
 }
 
 function showTabMenu(arg) {
@@ -2271,9 +2643,10 @@ function showTabMenu(arg) {
   if (!t) return;
   const idx = tabs.indexOf(t);
   popAt([
-    { label: 'Yeni sekme', click: () => newTab('', false, t.id) },
+    { label: 'Yeni sekme', click: () => openNewTabPrompt(() => newTab('', false, t.id)) },
     { type: 'separator' },
     { label: 'Yenile', enabled: !!t.view, click: () => t.view && t.view.webContents.reload() },
+    { label: 'Sekmeyi uyut', enabled: !!t.view && (t.id !== activeId || tabs.length > 1), click: () => sleepTab(t.id) },
     { label: 'Kopyala', click: () => newTab(t.url, false, t.id) },
     { label: t.pinned ? 'Sabitlemeyi kaldır' : 'Sabitle', click: () => togglePin(t.id) },
     ...(settings.tabAudio ? [{ label: t.muted ? 'Sitenin sesini aç' : 'Sitenin sesini kapat', click: () => toggleMute(t.id) }] : []),
@@ -2404,11 +2777,22 @@ const THEMES = {
   pembe:   { name: 'Pembe', mode: 'light', frame: '#f3cfdd', toolbar: '#fdf1f6', omni: '#ffffff', accent: '#b0306a', page: '#fef7fa' },
   gece:    { name: 'Gece mavisi', mode: 'dark', frame: '#121a28', toolbar: '#212d44', omni: '#121a28', accent: '#a8c7fa', page: '#161f30' },
   orman:   { name: 'Orman', mode: 'dark', frame: '#111d17', toolbar: '#1e3027', omni: '#111d17', accent: '#8fd4a8', page: '#14221b' },
-  murdum:  { name: 'Mürdüm', mode: 'dark', frame: '#1d1424', toolbar: '#30223b', omni: '#1d1424', accent: '#d7b8f3', page: '#21172a' }
+  murdum:  { name: 'Mürdüm', mode: 'dark', frame: '#1d1424', toolbar: '#30223b', omni: '#1d1424', accent: '#d7b8f3', page: '#21172a' },
+  kum:     { name: 'Kum', mode: 'light', frame: '#e8dcc4', toolbar: '#f7f1e3', omni: '#ffffff', accent: '#8a6a1f', page: '#fbf7ee' },
+  nane:    { name: 'Nane', mode: 'light', frame: '#bfe6dd', toolbar: '#ecf8f5', omni: '#ffffff', accent: '#0b7a6b', page: '#f2fbf8' },
+  gok:     { name: 'Gökyüzü', mode: 'light', frame: '#bde3f5', toolbar: '#ebf7fd', omni: '#ffffff', accent: '#0a6fa8', page: '#f2faff' },
+  limon:   { name: 'Limon', mode: 'light', frame: '#efe59a', toolbar: '#fbf8dc', omni: '#ffffff', accent: '#7a6c00', page: '#fdfbe9' },
+  gul:     { name: 'Gül', mode: 'light', frame: '#f5c6c6', toolbar: '#fdeeee', omni: '#ffffff', accent: '#b3262e', page: '#fff6f6' },
+  okyanus: { name: 'Okyanus', mode: 'dark', frame: '#0b1f26', toolbar: '#153440', omni: '#0b1f26', accent: '#7fd6e8', page: '#0e262e' },
+  civit:   { name: 'Çivit', mode: 'dark', frame: '#15143a', toolbar: '#262560', omni: '#15143a', accent: '#b4b4ff', page: '#1a1944' },
+  bordo:   { name: 'Bordo', mode: 'dark', frame: '#230f16', toolbar: '#3a1c26', omni: '#230f16', accent: '#f2a7bd', page: '#2a131b' },
+  gunbat:  { name: 'Gün batımı', mode: 'dark', frame: '#26130d', toolbar: '#3f2116', omni: '#26130d', accent: '#ffb087', page: '#2d1810' },
+  kahve:   { name: 'Kahve', mode: 'dark', frame: '#1f1712', toolbar: '#33271f', omni: '#1f1712', accent: '#e3bd8f', page: '#251c16' },
+  grafit:  { name: 'Grafit', mode: 'dark', frame: '#17191c', toolbar: '#2a2d31', omni: '#17191c', accent: '#b9c4d0', page: '#1c1e21' }
 };
 const currentTheme = () => THEMES[settings.theme] || THEMES.sistem;
 // Pitch black: with the dark theme or a dark system theme, except colored themes
-const PITCH = { frame: '#000000', toolbar: '#000000', omni: '#161616', accent: '#a8c7fa', page: '#000000', menu: '#121212', mode: 'dark' };
+const PITCH = { frame: '#000000', toolbar: '#000000', card: '#0a0a0a', activeTab: '#0a0a0a', omniHover: '#141414', omni: '#0d0d0d', accent: '#a8c7fa', page: '#000000', menu: '#121212', mode: 'dark' };
 function effectiveTheme() {
   const t = currentTheme();
   const dark = t.mode === 'dark' || (t.mode === 'system' && nativeTheme.shouldUseDarkColors);
@@ -2440,13 +2824,16 @@ function paintFrame() {
 const INCOGNITO_THEME = { frame: '#202124', toolbar: '#35363a', omni: '#202124', accent: '#8ab4f8', page: '#202124', mode: 'dark' };
 function themeVars() {
   const t = effectiveTheme();
-  return t.frame ? { frame: t.frame, toolbar: t.toolbar, omni: t.omni, accent: t.accent, page: t.page, mode: t.mode, ...(t.menu ? { menu: t.menu } : {}) } : null;
+  return t.frame ? { frame: t.frame, toolbar: t.toolbar, omni: t.omni, accent: t.accent, page: t.page, mode: t.mode, ...(t.menu ? { menu: t.menu } : {}), ...(t.card ? { card: t.card, activeTab: t.activeTab, omniHover: t.omniHover } : {}) } : null;
 }
 
 // ---------------------------------------------------------------- Local pages (new tab + welcome)
 const pageData = () => ({
   incognito: !!(W && W.incognito),
-  newtabTitle: settings.newtabTitle,
+  clockPosition: settings.newtabClock,
+  clockSize: settings.newtabClockSize,
+  clockFont: settings.newtabClockFont,
+  clockWeight: settings.newtabClockWeight,
   shortcuts: settings.shortcuts.map((s) => ({ title: s.title, url: s.url, icon: s.icon || null })),
   searchUrl: searchUrl(),
   searchName: (SEARCH_ENGINES[settings.searchEngine] || SEARCH_ENGINES.google).name,
@@ -2456,6 +2843,7 @@ const pageData = () => ({
 });
 
 function broadcastPages() {
+  for (const [owner, panel] of [...downloadPanels, ...taskPanels]) if (!panel.isDestroyed()) inWin(owner, () => panel.webContents.send('page-update', pageData()));
   for (const t of allTabs()) {
     if (!t.view || !isInternal(t.url)) continue;
     inWin(t.w, () => { try { t.view.webContents.send('page-update', pageData()); } catch {} });
@@ -2472,6 +2860,7 @@ function notifyPages(kind) {
       if (!t.view || pageKind(t.url) !== kind) continue;
       inWin(t.w, () => { try { t.view.webContents.send('page-update', { ...pageData(), changed: kind }); } catch {} });
     }
+    if (kind === 'downloads') for (const [owner, panel] of downloadPanels) if (!panel.isDestroyed()) inWin(owner, () => panel.webContents.send('page-update', { ...pageData(), changed: kind }));
   }, kind === 'downloads' ? 300 : kind === 'extensions' ? 100 : 800);
 }
 
@@ -2506,7 +2895,8 @@ async function fileIcon(file) {
 }
 
 async function downloadsList() {
-  return Promise.all(downloads.map(async (d) => {
+  // Incognito downloads are shown only in incognito windows
+  return Promise.all(downloads.filter((d) => !d.incognito || W?.incognito).map(async (d) => {
     let exists = true;
     if (d.state === 'completed') exists = await fsp.access(d.file).then(() => true, () => false);
     return {
@@ -2545,11 +2935,15 @@ function normalizeUrl(u) {
 
 function settingsData() {
   return {
+    askDownloadLocation: settings.askDownloadLocation === true,
+    newTabPrompt: settings.newTabPrompt === true,
+    overlayScrollbar: settings.overlayScrollbar !== false,
+    uboError: settings.adblockEngine !== 'hafif' && mainBlockSettled && !uboId,
     theme: settings.theme, themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name, mode: t.mode, frame: t.frame || null, accent: t.accent || null })),
     engine: settings.searchEngine, engines: Object.entries(SEARCH_ENGINES).map(([key, x]) => ({ key, name: x.name })),
     bookmarksBar: settings.bookmarksBar, fullUrl: settings.fullUrl, forceDarkPages: settings.forceDarkPages, strictIsolation: settings.strictIsolation, language: settings.language || 'auto',
     clearGoogleOnExit: settings.clearGoogleOnExit, restoreSession: settings.restoreSession,
-    keepLogins: settings.keepLogins, newtabTitle: settings.newtabTitle,
+    keepLogins: settings.keepLogins, newtabClock: settings.newtabClock, newtabClockSize: settings.newtabClockSize, newtabClockFont: settings.newtabClockFont, newtabClockWeight: settings.newtabClockWeight,
     sleepMinutes: settings.sleepMinutes, sleepChoices: SLEEP_CHOICES, downloadNotify: settings.downloadNotify,
     downloadsDir: app.getPath('downloads'),
     extSupport: !!extensions, webStore: !!CWS, extCount: listExtensions().length,
@@ -2563,10 +2957,22 @@ function settingsData() {
     widevine: (() => { try { const st = components && components.status(); const w = st && Object.values(st).find((x) => /widevine/i.test(x.title || '')); return w ? w.version : null; } catch { return null; } })()
   };
 }
-function setNewtabTitle(v) {
-  settings.newtabTitle = String(v == null ? 'Mondium' : v).replace(/\s+/g, ' ').trim().slice(0, 40);
+const CLOCK_POSITIONS = ['top', 'tl', 'tr', 'bl', 'br', 'off'];
+const CLOCK_FONT_KEYS = ['system', 'bahnschrift', 'georgia', 'times', 'trebuchet', 'verdana', 'consolas', 'courier', 'script', 'impact'];
+const CLOCK_WEIGHTS = [300, 400, 600, 700, 900];
+function setNewtabClock({ position, size, font, weight }) {
+  if (position !== undefined && !CLOCK_POSITIONS.includes(position)) return false;
+  if (font !== undefined && !CLOCK_FONT_KEYS.includes(font)) return false;
+  if (weight !== undefined && !CLOCK_WEIGHTS.includes(Number(weight))) return false;
+  const px = size === undefined ? undefined : Math.round(Number(size));
+  if (px !== undefined && (!Number.isFinite(px) || px < 20 || px > 140)) return false;
+  if (position !== undefined) settings.newtabClock = position;
+  if (px !== undefined) settings.newtabClockSize = px;
+  if (font !== undefined) settings.newtabClockFont = font;
+  if (weight !== undefined) settings.newtabClockWeight = Number(weight);
   saveSettings();
   broadcastPages();
+  return true;
 }
 // On language change the UI and Mondium pages are reloaded (translation is applied when a page opens)
 function setLanguage(v) {
@@ -2584,8 +2990,13 @@ function settingsSet(key, value) {
     case 'engine': case 'searchEngine': if (!SEARCH_ENGINES[value]) return false; setSetting('searchEngine', value); broadcastPages(); return true;
     case 'bookmarksBar': if (typeof value !== 'boolean') return false; if (value !== settings.bookmarksBar) toggleBookmarksBar(); return true;
     case 'sleepMinutes': if (!SLEEP_CHOICES.includes(value)) return false; setSetting('sleepMinutes', value); return true;
-    case 'newtabTitle': if (typeof value !== 'string') return false; setNewtabTitle(value); return true;
+    case 'newtabClock': return setNewtabClock({ position: value });
+    case 'newtabClockSize': return setNewtabClock({ size: value });
+    case 'newtabClockFont': return setNewtabClock({ font: value });
+    case 'newtabClockWeight': return setNewtabClock({ weight: value });
     case 'hoverZoom': if (typeof value !== 'boolean') return false; setFeature(key, value); return true;
+    case 'newTabPrompt': case 'askDownloadLocation': return bool(key);
+    case 'overlayScrollbar': if (typeof value !== 'boolean') return false; setSetting(key, value, true); return true;
     case 'sleepTabs': return bool(key);
     case 'tabAudio':
       if (typeof value !== 'boolean') return false;
@@ -2618,6 +3029,19 @@ ipcMain.handle('page', async (e, cmd, arg) => {
   const from = (e.senderFrame && e.senderFrame.url) || '';
   const kind = pageKind(from);
   if (!kind) throw new Error('izin yok');
+  if (kind === 'security') {
+    const target = blockedNavigations.get(e.sender.id);
+    if (cmd === 'get') return { ...pageData(), blockedHost: target ? hostOf(target) : null };
+    if (cmd === 'security-back') { blockedNavigations.delete(e.sender.id); go(e.sender, newtabUrl()); return { ok: true }; }
+    if (cmd === 'security-continue' && target && ow) {
+      if (!trustedThreatHosts.has(ow)) trustedThreatHosts.set(ow, new Set());
+      trustedThreatHosts.get(ow).add(hostOf(target));
+      blockedNavigations.delete(e.sender.id);
+      go(e.sender, target);
+      return { ok: true };
+    }
+    return null;
+  }
   if (cmd === 'get') return pageData();
   if (kind === 'settings') {
     switch (cmd) {
@@ -2655,6 +3079,18 @@ ipcMain.handle('page', async (e, cmd, arg) => {
       case 'ext-remove': await removeExtension(String(arg)); notifyPages('settings'); return { ok: true };
       case 'open-page': openPage(arg === 'downloads' ? DOWNLOADS_URL : arg === 'extensions' ? EXTENSIONS_URL : HISTORY_URL); return { ok: true };
       case 'task-manager': showTaskManager(); return { ok: true };
+    }
+    return null;
+  }
+  if (kind === 'tasks') {
+    if (cmd === 'task-panel-close') { const panel = ow && taskPanels.get(ow); if (panel?.webContents === e.sender) panel.close(); return { ok: true }; }
+    if (cmd === 'tasks-list') return taskManagerData();
+    if (cmd === 'tasks-sleep') return { ok: sleepTab(arg) };
+    if (cmd === 'tasks-sleep-background') { sleepIdleTabs(true); return { ok: true }; }
+    if (cmd === 'tasks-activate') {
+      const t = allTabs().find((x) => x.id === Number(arg));
+      if (t) { const panel = ow && taskPanels.get(ow); if (panel?.webContents === e.sender) panel.close(); useWin(t.w); activateTab(t.id); win.focus(); }
+      return { ok: !!t };
     }
     return null;
   }
@@ -2696,6 +3132,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
     return null;
   }
   if (kind === 'downloads') {
+    if (cmd === 'download-panel-close') { const panel = ow && downloadPanels.get(ow); if (panel?.webContents === e.sender) panel.close(); return { ok: true }; }
     if (cmd === 'downloads-list') return downloadsList();
     if (/^dl-/.test(cmd)) return downloadAction(cmd, arg);
     return null;
@@ -2734,7 +3171,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
     }
     case 'theme': if (THEMES[arg]) { settings.theme = arg; saveSettings(); applyTheme(); } return { ok: true };
     case 'language': if (kind === 'welcome' && ['auto', 'tr', 'en'].includes(arg)) { settings.languageSet = true; setLanguage(arg); } return { ok: true };
-    case 'newtab-title': setNewtabTitle(arg); return { ok: true };
+    case 'newtab-clock': if (kind === 'newtab' && arg) { setNewtabClock(arg); notifyPages('settings'); } return { ok: true };
     case 'welcome-done': {
       settings.firstRunDone = true;
       saveSettings(true);
@@ -2750,10 +3187,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
 // Returns null if none is found; the new tab page shows the first letter instead.
 async function fetchSiteIcon(pageUrl) {
   const fetchT = async (u, ms = 7000) => {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), ms);
-    try { return await net.fetch(u, { signal: ac.signal, headers: { 'User-Agent': app.userAgentFallback } }); }
-    finally { clearTimeout(timer); }
+    return net.fetch(u, { signal: AbortSignal.timeout(ms), headers: { 'User-Agent': app.userAgentFallback } });
   };
   let base;
   try { base = new URL(pageUrl); } catch { return null; }
@@ -2762,7 +3196,7 @@ async function fetchSiteIcon(pageUrl) {
     const r = await fetchT(base.href);
     if (r.ok && /html/i.test(r.headers.get('content-type') || '')) {
       base = new URL(r.url || base.href);
-      const html = (await r.text()).slice(0, 400000);
+      const html = (await readResponseBytes(r, 400000)).toString('utf8');
       for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
         const tag = m[0];
         const rel = ((tag.match(/\brel\s*=\s*["']([^"']+)["']/i) || tag.match(/\brel\s*=\s*([^\s>]+)/i) || [])[1] || '').toLowerCase();
@@ -2787,7 +3221,7 @@ async function fetchSiteIcon(pageUrl) {
       if (!type.startsWith('image/')) {
         if (/\.ico(\?|$)/i.test(c.href)) type = 'image/x-icon'; else if (/\.png(\?|$)/i.test(c.href)) type = 'image/png'; else continue;
       }
-      const buf = Buffer.from(await r.arrayBuffer());
+      const buf = await readResponseBytes(r, 300000);
       if (buf.length < 70 || buf.length > 300000) continue;
       return `data:${type};base64,${buf.toString('base64')}`;
     } catch {}
@@ -2825,14 +3259,14 @@ function createWindow(opts = {}) {
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 12, y: 14 } } : { titleBarOverlay: { color: settings.verticalTabs ? c.toolbar : c.frame, symbolColor: c.symbol, height: settings.verticalTabs ? TOOLBAR : TAB_STRIP } })
   });
+  if (process.platform === 'win32') win.setAppDetails({ appId: 'local.mondium.tarayici', appIconPath: app.isPackaged ? path.join(process.resourcesPath, 'mondium.ico') : path.join(__dirname, 'build', 'icon.ico'), appIconIndex: 0, relaunchDisplayName: 'Mondium', relaunchCommand: app.isPackaged ? '"' + process.execPath + '"' : '"' + process.execPath + '" "' + __dirname + '"' });
   if (win.setMenu) win.setMenu(null);
 
   ui = w.ui = new WebContentsView({
     webPreferences: {
-      preload: path.join(__dirname, 'ui-preload.js'),
-      // sandbox off: the preload must load modules for extension icons (<browser-action-list>).
-      // The UI only shows the local ui.html and can't navigate elsewhere (will-navigate is blocked below).
-      sandbox: false, contextIsolation: true, nodeIntegration: false, spellcheck: false, session: mainSes
+      preload: path.join(__dirname, 'vendor', 'ui-sandbox-preload.js'),
+      // The extension icon API is bundled into a sandbox-compatible preload (tools/prepare-security.js).
+      sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, session: w.ses
     }
   });
   ui.setBackgroundColor('#00000000');   // so the page shows behind while a menu is open
@@ -2872,8 +3306,10 @@ function createWindow(opts = {}) {
 function closedWindow(w) {
   if (W === w) saveCtx();
   for (const t of w.tabs) {
+    if (t.titleRequest) t.titleRequest.abort();
     if (!t.view) continue;
     byWcId.delete(t.wcId);
+    blockedNavigations.delete(t.wcId);
     try { t.view.webContents.close(); } catch {}
     t.view = null;
   }
@@ -2946,6 +3382,8 @@ app.whenReady().then(async () => {
   setupSession(mainSes);
   if (settings.clearGoogleOnExit) await clearGoogleData();   // the previous session may have crashed
   nativeTheme.on('updated', () => { forEachWin(() => { paintFrame(); pushState(); }); broadcastPages(); });
+  // Malicious-domain list: data update only, no browsing data leaves the computer.
+  if (app.isPackaged) { setTimeout(() => threatProtection.refresh(), 30000); setInterval(() => threatProtection.refresh(), 12 * 60 * 60 * 1000); }
   createWindow();
   startBlocking();
   setupExtensions();

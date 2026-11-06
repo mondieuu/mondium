@@ -55,6 +55,7 @@
   .txt { height:32px; width:200px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text); padding:0 10px; font:inherit; outline:none; }
   .txt:focus { border-color:var(--accent); }
   select { height:32px; border-radius:8px; border:1px solid var(--border); background:var(--card); padding:0 8px; min-width:150px; }
+  select:focus-visible { outline:2px solid var(--accent); outline-offset:0; }
   .btn { height:32px; padding:0 16px; border-radius:16px; border:1px solid var(--border); background:none; color:var(--accent); font-weight:500; white-space:nowrap; }
   .btn:hover { background:var(--hover); }
   .chev { color:var(--dim); }
@@ -213,12 +214,15 @@ function render() {
   const themeCard = el('div', 'card'); themeCard.append(themes);
   const gh = el('h2', null, 'Görünüm'); gh.id = 'gorunum';
   const look = el('div', 'card');
-  const ti = el('input', 'txt'); ti.value = d.newtabTitle; ti.maxLength = 40; ti.placeholder = 'Boş bırakılırsa gizlenir'; ti.spellcheck = false;
-  const saveTitle = () => { if (ti.value.trim() !== d.newtabTitle) set('newtabTitle', ti.value); };
-  ti.onchange = saveTitle; ti.onkeydown = (e) => { if (e.key === 'Enter') ti.blur(); };
+  const clockSize = el('input'); clockSize.type = 'range'; clockSize.min = 20; clockSize.max = 140; clockSize.step = 2; clockSize.value = d.newtabClockSize; clockSize.style.accentColor = 'var(--accent)'; clockSize.setAttribute('aria-label', 'Saatin boyutu');
+  clockSize.disabled = d.newtabClock === 'off';
+  clockSize.onchange = () => set('newtabClockSize', Number(clockSize.value));
   look.append(...[
     select('language', [['auto', 'Otomatik (sistem dili)'], ['tr', 'Türkçe'], ['en', 'English']], 'Dil / Language', 'Arayüz dili. "Otomatik" Windows dilini kullanır.'),
-    row('Yeni sekme başlığı', 'Yeni sekme sayfasındaki büyük yazı. Sayfada başlığa çift tıklayarak da değiştirebilirsiniz.', ti),
+    select('newtabClock', [['top', 'Logonun üstü'], ['tl', 'Sol üst'], ['tr', 'Sağ üst'], ['bl', 'Sol alt'], ['br', 'Sağ alt'], ['off', 'Kapalı']], 'Yeni sekme saati', 'Yeni sekmedeki saatin yeri. Sayfadaki Özelleştir düğmesinden de değiştirebilirsiniz.'),
+    row('Saatin boyutu', '', clockSize),
+    select('newtabClockFont', [['system', 'Sistem'], ['bahnschrift', 'Bahnschrift'], ['georgia', 'Georgia'], ['times', 'Times New Roman'], ['trebuchet', 'Trebuchet MS'], ['verdana', 'Verdana'], ['consolas', 'Consolas'], ['courier', 'Courier New'], ['script', 'Segoe Script'], ['impact', 'Impact']], 'Saatin yazı tipi', ''),
+    select('newtabClockWeight', [[300, 'İnce'], [400, 'Normal'], [600, 'Yarı kalın'], [700, 'Kalın'], [900, 'Çok kalın']], 'Saatin kalınlığı', 'Bazı yazı tiplerinde her kalınlık bulunmaz.'),
     toggle('bookmarksBar', 'Yer işaretleri çubuğunu göster', 'Ctrl+Shift+B'),
     toggle('fullUrl', 'Adres çubuğunda tam URL göster', 'Kapalıyken "https://www." kısmı gizlenir.'),
     toggle('forceDarkPages', 'Tüm sayfaları koyu göster', 'Siteleri zorla koyu renge çevirir. Yeniden başlatma gerekir.'),
@@ -226,6 +230,8 @@ function render() {
     toggle('verticalTabs', 'Dikey sekmeler', 'Sekmeler solda kenar çubuğunda listelenir. Genişliği kenar çubuğunun sağ kenarını sürükleyerek ayarlarsınız; en dar halinde sadece simgeler görünür.'),
     d.verticalTabs ? toggle('verticalAutoHide', 'Kenar çubuğunu otomatik gizle (Ctrl+S)', 'Kenar çubuğu gizlenir, sayfa tam genişlikte görünür. Fareyi ekranın sol kenarına götürünce ayarladığınız genişlikte açılır.') : null,
     d.verticalTabs && d.verticalAutoHide ? (() => { const n = el('input', 'txt'); n.type = 'number'; n.min = 1; n.max = 60; n.value = d.sideEdge; n.style.width = '90px'; n.setAttribute('aria-label', 'Kenar algılama genişliği (piksel)'); n.onchange = () => set('sideEdge', Number(n.value)); return row('Kenar algılama genişliği (px) - geçici test ayarı', 'Fare ekranın sol kenarından bu kadar piksel içerideyken kenar çubuğu açılır (1-60).', n); })() : null,
+    toggle('newTabPrompt', 'Yeni sekmede arama kutusu', 'Ctrl+T ile önce arama veya adres kutusunu aç; sekme adresi yazınca oluşur.'),
+    toggle('overlayScrollbar', 'İnce kaydırma çubuğu', 'Sayfanın genişliğini almayan ince bir kaydırma çubuğu kullan. Yeniden başlatma gerekir.'),
     toggle('tabAudio', 'Sekmelerde ses simgesini göster', 'Kapalıyken sekmelerde hoparlör simgesi görünmez ve sekmeyi sessize alma tamamen devre dışı kalır.')
   ].filter(Boolean));
 
@@ -246,12 +252,13 @@ function render() {
       row('Gezinti verilerini temizle', 'Geçmiş, çerezler, site verileri ve önbellek; korunan siteler hariç tutulabilir (Ctrl+Shift+Delete).', button('Temizle', () => openClear())),
       toggle('keepLogins', 'Sitelerde oturumum açık kalsın', 'Giriş yaptığınız siteler tarayıcı kapanıp açılınca da sizi hatırlar. Bilgiler sadece bu bilgisayarda saklanır, 30 gün kullanılmazsa silinir.'),
       toggle('clearGoogleOnExit', 'Kapanışta Google verilerini sil', 'Açıkken Google, YouTube ve Gmail oturumunuz her kapanışta kapanır.'),
-      toggle('strictIsolation', 'Her siteyi ayrı süreçte çalıştır (tam site izolasyonu)', 'Chrome gibi her site ve gömülü üçüncü taraf ayrı süreçte çalışır: biraz daha güvenli, ama çok daha fazla RAM (6 sitede ~1,8 GB fazla). Kapalıyken giriş, ödeme ve korunan siteler yine ayrı süreçte. Yeniden başlatma gerekir.'),
+      toggle('strictIsolation', 'Her siteyi ayrı süreçte çalıştır (tam site izolasyonu)', 'Önerilen: Chrome gibi her site ve gömülü üçüncü taraf ayrı süreçte çalışır, bir sitedeki açık diğer sitelerin verisine ulaşamaz. Kapatınca RAM azalır (6 sitede ~1,8 GB), ama sadece giriş, ödeme ve korunan siteler ayrı süreçte kalır. Yeniden başlatma gerekir.'),
       row('Site izinlerini sıfırla', d.sitePerms ? `${d.sitePerms} site için kaydedilmiş izin kararı var (kamera, konum, bildirim...).` : 'Kaydedilmiş izin kararı yok.',
         button('Sıfırla', () => api.call('site-perms').then(() => { toast('Site izinleri sıfırlandı'); load(); }))),
       row('Cihaz izinleri', d.deviceGrants ? `${d.deviceGrants} cihaz izni var (USB, HID, seri, Bluetooth).` : 'Hiçbir siteye cihaz izni verilmemiş.', button('Göster', () => api.call('device-grants'))),
       d.uboAvailable ? select('adblockEngine', [['ubo', 'uBlock Origin (önerilen)'], ['hafif', 'Mondium hafif motor']], 'Reklam engelleyici',
         'uBlock Origin en güçlü engelleme (YouTube dahil), ama yaklaşık 250 MB daha fazla RAM kullanır. Hafif motor aynı filtre listelerini çok daha az RAM ile kullanır, YouTube reklamlarını her zaman engelleyemez. Değişiklik yeniden başlatınca uygulanır.') : null,
+      d.uboError ? row('uBlock Origin', 'Başlatılamadı. Tarayıcıyı yeniden başlatın.') : null,
       d.ubo != null
         ? row('uBlock Origin ' + d.ubo, 'Her zaman açık. Filtre listeleri, kendi kurallarınız ve site istisnaları uBlock Origin ayarlarında.', button('uBlock Origin ayarları', () => api.call('ubo-dashboard')))
         : row('Mondium hafif motor', 'Her zaman açık. uBlock Origin listeleri, EasyList ve AdGuard Türkçe.', button('Listeleri güncelle', () => api.call('update-filters')))),
@@ -259,10 +266,11 @@ function render() {
     ...sdSection(),
     ...section('indirmeler', 'İndirmeler',
       row('Konum', d.downloadsDir, button('Klasörü aç', () => api.call('open-downloads-folder'))),
+      toggle('askDownloadLocation', 'İndirirken nereye kaydedileceğini sor', 'Her indirmede kayıt konumunu seç.'),
       toggle('downloadNotify', 'İndirme bitince bildirim göster', 'Bildirime tıklayınca dosya klasörde gösterilir.'),
       row('Tüm indirilenler', 'Ctrl+J', null, () => api.call('open-page', 'downloads'))),
     ...section('araclar', 'Yerleşik araçlar',
-      toggle('hoverZoom', 'Resim büyütme', 'Farenizi bir resmin ya da resim bağlantısının üzerinde tutunca büyük hali açılır (Imagus gibi). Z: resmi ekrana sabitler, tekerlekle büyütüp küçültür, sürükleyerek kaydırırsınız (çift tık: %100 / sığdır). Esc veya Z ile kapanır. Uzantı gerekmez.')),
+      toggle('hoverZoom', 'Resim büyütme', 'Farenizi bir resmin ya da resim bağlantısının üzerinde tutunca büyük hali açılır (Imagus gibi). Z: resmi ekrana sabitler, tekerlekle büyütüp küçültür, sürükleyerek kaydırırsınız (çift tık: %100 / sığdır). S: resmi indirir. Esc veya Z ile kapanır. Uzantı gerekmez.')),
     ...section('uzantilar', 'Uzantılar',
       d.extSupport
         ? row('Uzantıları yönet', d.extCount ? d.extCount + ' uzantı yüklü. Açın, kapatın, araç çubuğunda gizleyin veya kaldırın.' : 'Henüz uzantı yok.', null, () => api.call('open-page', 'extensions'))

@@ -11,13 +11,26 @@ function inMainWorld(fn) {
 
 // 1) The browser's own local pages (new tab, welcome, history, downloads): shortcuts, theme, list API.
 //    This API is never created on other sites. The main process also checks the sender page on every command.
-if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions)\.html$/.test(location.pathname)) {
+if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions|taskmanager|securitywarning)\.html$/.test(location.pathname)) {
   contextBridge.exposeInMainWorld('pageApi', {
     lang: ipcRenderer.sendSync('mondium-lang'),   // UI language: 'tr' | 'en' (see i18n.js)
     get: () => ipcRenderer.invoke('page', 'get'),
     call: (cmd, arg) => ipcRenderer.invoke('page', cmd, arg),
     onUpdate: (fn) => { ipcRenderer.removeAllListeners('page-update'); ipcRenderer.on('page-update', (_e, d) => fn(d)); }
   });
+}
+
+// Capture visible link labels; no background page or media needs to load just for a title.
+if (/^https?:$/.test(location.protocol)) {
+  window.addEventListener('mousedown', (e) => {
+    if (!e.isTrusted || !(e.button === 1 || (e.button === 0 && (e.ctrlKey || e.metaKey)))) return;
+    const link = e.composedPath().find((el) => el?.tagName === 'A' && el.href);
+    if (!link || !/^https?:/i.test(link.href)) return;
+    const card = link.closest('ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,yt-lockup-view-model');
+    const named = card?.querySelector('a#video-title,a#video-title-link,[role="heading"]');
+    const title = named?.getAttribute('title') || named?.textContent || link.getAttribute('title') || link.getAttribute('aria-label') || link.textContent;
+    if (title?.trim()) ipcRenderer.sendSync('mondium-link-title', { url: link.href, title: title.slice(0, 300) });
+  }, { capture: true, passive: true });
 }
 
 // 2) Passkeys fully disabled: sites see no passkey support,
@@ -50,6 +63,7 @@ if (/^https?:$/.test(location.protocol)) {
 {
   let atEdge = false, edge = 2;
   try { edge = ipcRenderer.sendSync('mondium-edge-px') || 2; } catch {}
+  window.addEventListener('mouseleave', () => { atEdge = false; });
   ipcRenderer.on('mondium-edge-px', (_e, v) => { edge = v; });
   window.addEventListener('mousemove', (e) => {
     if (e.clientX < edge) { if (!atEdge) { atEdge = true; ipcRenderer.send('mondium-edge'); } }
@@ -60,6 +74,9 @@ if (/^https?:$/.test(location.protocol)) {
 // Built-in image zoom world (1014, see hoverzoom.js): separate img/media rule so the site's CSP doesn't block
 // the large image from another server (extension content scripts work this way in Chrome too).
 if (/^https?:$/.test(location.protocol)) {
+  contextBridge.exposeInIsolatedWorld(1014, 'mondiumZoomDownload', (url) => {
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) ipcRenderer.send('mondium-zoom-download', url);
+  });
   try { webFrame.setIsolatedWorldInfo(1014, { name: 'Mondium resim büyütme', securityOrigin: location.origin, csp: "default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline'" }); } catch {}
 }
 

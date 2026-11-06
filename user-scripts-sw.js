@@ -8,7 +8,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // The preload's own context has no "location"; the URL is read from the worker's own world.
 let isExtension = false;
 try { isExtension = process.type === 'service-worker' && contextBridge.executeInMainWorld({ func: () => globalThis.location.protocol }) === 'chrome-extension:'; } catch {}
-if (isExtension) {
+let allowed = false;
+if(isExtension) { try { allowed = contextBridge.executeInMainWorld({func:()=>!!globalThis.chrome?.runtime?.getManifest()?.permissions?.includes('userScripts')}); } catch {} }
+if (isExtension && allowed) {
   const deliverers = [];
   ipcRenderer.on('mondium-us-deliver', (_e, reqId, msg, sender) => { for (const fn of deliverers) fn(reqId, msg, sender); });
   contextBridge.exposeInMainWorld('__mondiumUS', {

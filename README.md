@@ -25,9 +25,10 @@
 Modern browsers ship with sync, telemetry, shopping assistants, AI sidebars, sponsored tiles and a dozen background services. Mondium keeps the Chromium engine and drops the rest.
 
 - **Debloated.** No sign-in, sync, crash reporting, Safe Browsing pings, translation service, Privacy Sandbox, Topics or FLEDGE. No `X-Client-Data` header.
-- **Light on memory.** Smart process grouping, sleeping background tabs, and a UI drawn in a single view with no extra processes.
+- **Light on memory.** Background tabs load only when opened, unused tabs go to sleep, and the UI is drawn in a single view with no extra processes.
 - **Private by default.** Real uBlock Origin built in, DNS-over-HTTPS, Do Not Track + Global Privacy Control, WebRTC IP leak protection.
-- **Minimalist design.** Chrome-familiar layout, without the logos. 11 themes, pitch-black mode, vertical tabs. English and Turkish UI.
+- **Hardened.** Full site isolation, sandboxed UI, verified extension packages and a local malicious-site warning. See the [security notes](docs/security-hardening.md).
+- **Minimalist design.** Chrome-familiar layout, without the logos. 22 themes, pitch-black mode, vertical tabs. English and Turkish UI.
 - **Vanilla JS.** The whole UI is plain HTML, CSS and JavaScript. No framework, no bundler, no TypeScript build step.
 
 ## Screenshots
@@ -36,13 +37,25 @@ Modern browsers ship with sync, telemetry, shopping assistants, AI sidebars, spo
 |---|---|
 | ![Vertical tabs](docs/vertical-tabs-dark.png) | ![Classic tabs, light theme](docs/horizontal-light.png) |
 
-| New tab | Built-in volume booster |
+| New tab | Customizable clock |
 |---|---|
-| ![New tab page](docs/new-tab-dark.png) | ![Volume booster](docs/volume-booster.png) |
+| ![New tab page](docs/new-tab-dark.png) | ![Clock position, size, font and weight](docs/new-tab-customize.png) |
+
+| 22 themes | Ocean theme |
+|---|---|
+| ![Theme picker](docs/themes.png) | ![New tab page in the Ocean theme](docs/new-tab-ocean.png) |
 
 | Protected sites | Clear browsing data |
 |---|---|
 | ![Protected sites](docs/settings-protected-sites.png) | ![Clear browsing data](docs/clear-browsing-data.png) |
+
+| Task manager | Built-in volume booster |
+|---|---|
+| ![Task manager](docs/task-manager.png) | ![Volume booster](docs/volume-booster.png) |
+
+| Malicious-site warning |
+|---|
+| ![Malicious-site warning](docs/security-warning.png) |
 
 > The interface is available in **English** and **Turkish** (Settings → Appearance → Language).
 
@@ -65,15 +78,17 @@ Clear everything, except the sites you choose to keep signed in to.
 - Handles public suffixes, private suffixes (`github.io`), IDN domains, IP addresses and `localhost`.
 
 ### Memory
-- **Process grouping.** Regular sites share renderer processes, while sign-in, payment and protected sites stay isolated (similar to Chrome on Android). In our test with six popular sites this cut renderer processes from 21 to 8 and working set from 4.6 GB to 2.8 GB. Full site isolation is one toggle away.
-- **Tab sleeping.** Background tabs are unloaded after 5–60 minutes (configurable). Tabs playing audio are never put to sleep.
+- **Deferred background tabs.** A link opened in the background is only a title until you select it: no renderer, scripts or media.
+- **Process grouping (optional).** Full site isolation is on by default. Turn it off in Settings to let regular sites share processes while sign-in, payment and protected sites stay isolated. In our test with six popular sites this cut renderer processes from 21 to 8 and working set from 4.6 GB to 2.8 GB.
+- **Tab sleeping.** Background tabs are unloaded after 5–60 minutes (configurable), or by hand from the tab menu or task manager. Tabs playing audio are never put to sleep automatically.
 - **Lazy session restore.** Only the active tab loads at startup.
-- **Task manager** (`Shift+Esc`) shows the memory of every tab, extension and process.
+- **Task manager** (`Shift+Esc`) shows the memory and CPU of every tab, extension and process.
 
 ### Interface
-- **Vertical tabs** with a resizable sidebar (down to an icon-only strip) and an auto-hide mode (`Ctrl+S`). The sidebar slides in from the screen edge.
-- **Themes:** System, Light, Dark, eight color themes, and an optional **pitch-black** mode for OLED screens.
-- **Built-in tools, no extensions needed:** a volume booster (up to 600% per tab), hover zoom for images (press `Z` to pin and zoom with the wheel), reader mode (`F9`), picture-in-picture.
+- **Vertical tabs** with a resizable sidebar (down to an icon-only strip), a grid of pinned tabs and an auto-hide mode (`Ctrl+S`). The sidebar slides in from the screen edge.
+- **Themes:** System, Light, Dark, 19 color themes, and an optional **pitch-black** mode for OLED screens.
+- **New tab page:** your shortcuts, the Mondium logo and a clock you can place above the logo or in any corner, with adjustable size, font and weight.
+- **Built-in tools, no extensions needed:** a volume booster (up to 600% per tab), hover zoom for images (press `Z` to pin and zoom with the wheel, `S` to download), reader mode (`F9`), picture-in-picture.
 - **Import bookmarks** from Chrome, Edge, Brave, Opera, Vivaldi, Yandex or Firefox in one click, or from any exported HTML file. Read locally, nothing is sent anywhere; imports land in a folder on the bookmarks bar.
 - **Address bar suggestions** from local history and bookmarks only. Nothing you type is sent to a search engine until you press Enter.
 - Chrome keyboard shortcuts, tab pinning and muting, reopen closed tabs, bookmarks bar, downloads and history pages.
@@ -125,7 +140,8 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 | `main.js` | Main process: windows and tabs, permissions, ad blocking, extensions, themes, sessions |
 | `ui.html` | Tab strip, toolbar, menus and bubbles, all drawn in one view |
 | `site-data.js` | Protected sites: site rules, engine inventory, selective cleanup |
-| `settings.html`, `newtab.html`, `history.html`, `downloads.html`, `extensions.html` | Internal pages |
+| `settings.html`, `newtab.html`, `history.html`, `downloads.html`, `extensions.html`, `taskmanager.html`, `securitywarning.html` | Internal pages |
+| `secure-crx.js`, `bounded-fetch.js`, `threat-protection.js`, `private-ubo.js` | Extension package verification, size-limited downloads, malicious-site list, Incognito network filter |
 | `volume.js`, `hoverzoom.js`, `reader.js` | Built-in tools injected into isolated worlds |
 | `page-preload.js` | Small preload for all pages |
 | `i18n.js` | English translations of the UI (Turkish is the source language) |
@@ -138,7 +154,7 @@ Mondium has no server and collects nothing. All data (settings, history, downloa
 
 ## License
 
-[GPL-3.0](LICENSE). Mondium bundles [uBlock Origin](https://github.com/gorhill/uBlock) (GPL-3.0) and is built with [Electron](https://www.electronjs.org/) / [castLabs ECS](https://github.com/castlabs/electron-releases), [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell) and [Ghostery adblocker](https://github.com/ghostery/adblocker).
+[GPL-3.0](LICENSE). See [NOTICE](NOTICE.md) for attribution, including the security work ported from [Calcium](https://github.com/cnrgks/Calcium). Mondium bundles [uBlock Origin](https://github.com/gorhill/uBlock) (GPL-3.0) and is built with [Electron](https://www.electronjs.org/) / [castLabs ECS](https://github.com/castlabs/electron-releases), [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell) and [Ghostery adblocker](https://github.com/ghostery/adblocker).
 
 Mondium is not affiliated with Google or the Chromium project.
 
@@ -150,15 +166,16 @@ Mondium is not affiliated with Google or the Chromium project.
 
 ### Neden Mondium
 - **Arındırılmış:** Oturum açma, senkronizasyon, çökme raporu, Safe Browsing pingleri, çeviri servisi, Privacy Sandbox, Topics ve FLEDGE yok. `X-Client-Data` başlığı yok.
-- **Az RAM:** Akıllı süreç gruplama, arka plan sekmelerini uyutma ve ek süreç açmayan tek görünümlü arayüz.
+- **Az RAM:** Arka plan sekmeleri açılana kadar yüklenmez, kullanılmayan sekmeler uyur, arayüz ek süreç açmaz.
 - **Varsayılan olarak gizli:** Gerçek uBlock Origin içinde gelir; DNS-over-HTTPS, Do Not Track + Global Privacy Control, WebRTC IP sızıntısı koruması.
-- **Sade tasarım:** Chrome'a benzeyen düzen, logolar olmadan. 11 tema, tam siyah (pitch black) mod, dikey sekmeler.
+- **Güçlendirilmiş:** Tam site izolasyonu, sandbox'lı arayüz, imzası doğrulanan uzantı paketleri ve yerel zararlı site uyarısı. Ayrıntı: [güvenlik notları](docs/security-hardening.md).
+- **Sade tasarım:** Chrome'a benzeyen düzen, logolar olmadan. 22 tema, tam siyah (pitch black) mod, dikey sekmeler.
 - **Saf JavaScript:** Arayüzün tamamı düz HTML, CSS ve JavaScript. Framework, bundler ya da TypeScript yok.
 
 ### Öne çıkanlar
 - **Korunan siteler:** Gezinti verilerini temizlerken seçtiğiniz sitelerde oturumunuz açık kalır. Temizlik motor üzerinden çerez ve depolama anahtarı bazında yapılır, sonuç yeniden okunarak doğrulanır.
-- **Bellek:** Normal siteler süreç paylaşır; giriş, ödeme ve korunan siteler ayrı süreçte kalır. 6 popüler sitede 21 süreç yerine 8 süreç, 4,6 GB yerine 2,8 GB çalışma belleği. Tam site izolasyonu tek tıkla açılır.
-- **Yerleşik araçlar:** Ses yükseltme (sekme başına %600'e kadar), resim büyütme (`Z` ile sabitle, tekerlekle yakınlaştır), okuma modu (`F9`), resim içinde resim.
+- **Bellek:** Tam site izolasyonu varsayılan olarak açık. Ayarlardan kapatınca normal siteler süreç paylaşır; giriş, ödeme ve korunan siteler ayrı kalır. 6 popüler sitede 21 süreç yerine 8 süreç, 4,6 GB yerine 2,8 GB çalışma belleği.
+- **Yerleşik araçlar:** Ses yükseltme (sekme başına %600'e kadar), resim büyütme (`Z` ile sabitle, tekerlekle yakınlaştır, `S` ile indir), okuma modu (`F9`), resim içinde resim.
 - **Yer işareti aktarma:** Chrome, Edge, Brave, Opera, Vivaldi, Yandex veya Firefox'tan tek tıkla ya da HTML dosyasından. Dosyalar sadece bu bilgisayarda okunur.
 - **Uyumluluk:** Chrome Web Mağazası uzantıları, Widevine DRM, WebHID / WebUSB / Web Serial / Web Bluetooth, yerleşik PDF görüntüleyici.
 
@@ -179,4 +196,4 @@ Kurulum dosyası için `npm run dist:win` ya da `build-installer.bat`.
 ### Gizlilik notu
 Mondium'un sunucusu yok ve hiçbir veri toplamaz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda `%APPDATA%\Mondium` klasöründe kalır.
 
-Lisans: [GPL-3.0](LICENSE). Mondium, Google veya Chromium projesiyle bağlantılı değildir.
+Lisans: [GPL-3.0](LICENSE). Kaynak gösterimi için [NOTICE](NOTICE.md). Mondium, Google veya Chromium projesiyle bağlantılı değildir.

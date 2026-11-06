@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('browserApi', {
   onChooserData: (fn) => ipcRenderer.on('chooser-data', (_e, d) => fn(d)),
   onPromptOpen: (fn) => ipcRenderer.on('prompt-open', (_e, d) => fn(d)),
   onPromptClose: (fn) => ipcRenderer.on('prompt-close', () => fn()),
+  onNewTabResults: (fn) => ipcRenderer.on('newtab-results', (_e, d) => fn(d)),
+  onNewTabPrompt: (fn) => ipcRenderer.on('newtab-prompt', (_e, d) => fn(d)),
   onSideReveal: (fn) => ipcRenderer.on('side-reveal', (_e, v) => fn(v))
 });
 

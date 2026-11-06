@@ -98,6 +98,8 @@
   .dlg h3 { font-size:20px; font-weight:400; margin-bottom:12px; }
   .dlg p { color:var(--dim); font-size:14px; line-height:1.5; }
   .dlg .row2 { display:flex; justify-content:flex-end; gap:8px; margin-top:24px; }
+/* Compact layout: the page opens as a centered panel (Ctrl+J, ?popup=1) */
+nav,.spacer{display:none}header{height:auto;min-height:68px;gap:14px;padding:16px 20px;flex-wrap:wrap;-webkit-app-region:drag}.brand{padding:0;width:auto;font-size:19px;font-weight:600}.search{height:36px;max-width:none;min-width:180px;border-radius:8px;-webkit-app-region:no-drag}.search input{font-size:13px}main{margin-left:0!important;padding:0 20px 20px}.wrap{max-width:900px}.tools{padding:8px 0;gap:8px}.dl{border-radius:8px;margin-bottom:8px;padding:14px;box-shadow:none;border:1px solid var(--border)}.date{padding:10px 0 6px;font-size:12px}.name{font-size:13px}.src{display:none}.acts{gap:12px;margin-top:7px}.acts button{font-size:12px}.note{font-size:11px;padding:8px 0}.close-panel{display:none;-webkit-app-region:no-drag;width:30px;height:30px;border:0;border-radius:6px;background:transparent;color:var(--dim);font-size:21px}.close-panel:hover{background:var(--hover)}body.popup .close-panel{display:block}body.popup{border:1px solid var(--border);min-height:100vh}body.popup header{position:sticky;top:0}body.popup .empty{padding:45px 10px}
 </style>
 </head>
 <body>
@@ -108,7 +110,7 @@
       <input id="q" placeholder="İndirilenlerde ara" autocomplete="off" spellcheck="false">
       <button class="x" id="qx" title="Aramayı temizle"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </label>
-    <div class="spacer"></div>
+    <button class="close-panel" id="closePanel" aria-label="Kapat">×</button>
   </header>
 
   <nav>
@@ -145,6 +147,9 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const api = window.pageApi;
+const popup = new URLSearchParams(location.search).has('popup');
+document.body.classList.toggle('popup', popup);
+$('closePanel').onclick = () => api?.call('download-panel-close');
 const FILE_IC = '<svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>';
 const X_IC = '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
 const EMPTY_IC = '<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>';
@@ -308,12 +313,12 @@ $('clearAll').onclick = () => { $('modal').hidden = false; $('mok').focus(); };
 $('mc').onclick = () => { $('modal').hidden = true; };
 $('mok').onclick = () => { $('modal').hidden = true; api.call('dl-clear').then(refresh); };
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) $('modal').hidden = true; });
-$('toHist').onclick = () => api && api.call('open-page', 'history');
+$('toHist').onclick = () => api && api.call('open-page', 'history').then(() => popup && api.call('download-panel-close'));
 $('clearData').onclick = () => api && api.call('clear-data');
 window.addEventListener('scroll', () => $('hdr').classList.toggle('scrolled', scrollY > 0), { passive: true });
 window.addEventListener('focus', refresh);   // refresh in case the file was deleted outside the browser
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { if (!$('modal').hidden) $('modal').hidden = true; else if ($('q').value) $('qx').click(); }
+  if (e.key === 'Escape') { if (!$('modal').hidden) $('modal').hidden = true; else if ($('q').value) $('qx').click(); else if (popup) api?.call('download-panel-close'); }
   const typing = document.activeElement && document.activeElement.tagName === 'INPUT';
   if (!typing && e.key === '/') { e.preventDefault(); $('q').focus(); }
 });

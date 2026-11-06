@@ -1,27 +1,32 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
   "scripts": {
     "start": "node tools/dev.js",
-    "dist:win": "electron-builder --win nsis --x64",
-    "dist:linux": "electron-builder --linux",
-    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
     "vmp-dev": "python -m castlabs_evs.vmp sign-pkg node_modules/electron/dist",
     "start:electron": "electron .",
-    "update-ublock": "node tools/update-ublock.js"
+    "update-ublock": "node tools/update-ublock.js",
+    "prepare-security": "node tools/prepare-security.js",
+    "postinstall": "node tools/prepare-security.js",
+    "test:security": "node tools/test-security.cjs",
+    "check:engine": "node tools/check-engine.cjs"
   },
   "dependencies": {
-    "@ghostery/adblocker-electron": "^2.0.0",
-    "electron-chrome-extensions": "^4.9.0",
-    "electron-chrome-web-store": "^0.13.0"
+    "@ghostery/adblocker-electron": "2.20.3",
+    "electron-chrome-extensions": "4.10.0",
+    "electron-chrome-web-store": "0.13.0",
+    "adm-zip": "0.6.1"
   },
   "devDependencies": {
-    "electron": "https://codeload.github.com/castlabs/electron-releases/tar.gz/refs/tags/v44.10.1%2Bwvcus",
-    "electron-builder": "latest"
+    "electron": "https://codeload.github.com/castlabs/electron-releases/tar.gz/refs/tags/v45.2.1%2Bwvcus",
+    "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "local.mondium.tarayici",
@@ -55,7 +60,14 @@
       "vendor/**/*",
       "site-data.js",
       "bookmark-import.js",
-      "i18n.js"
+      "i18n.js",
+      "taskmanager.html",
+      "bounded-fetch.js",
+      "secure-crx.js",
+      "threat-protection.js",
+      "securitywarning.html",
+      "private-ubo.js",
+      "overlay-scrollbar.js"
     ],
     "win": {
       "target": [
@@ -110,10 +122,55 @@
     "afterPack": "build/vmp-mac.js",
     "asarUnpack": [
       "vendor/ublock/**"
+    ],
+    "beforeBuild": "./build/prepare-security.js",
+    "extraResources": [
+      {
+        "from": "node_modules",
+        "to": "node_modules",
+        "filter": [
+          "@ghostery/adblocker/**/*",
+          "@ghostery/adblocker-content/**/*",
+          "@ghostery/adblocker-electron/**/*",
+          "@ghostery/adblocker-electron-preload/**/*",
+          "@ghostery/adblocker-extended-selectors/**/*",
+          "@ghostery/url-parser/**/*",
+          "@remusao/guess-url-type/**/*",
+          "@remusao/small/**/*",
+          "@remusao/smaz/**/*",
+          "@remusao/smaz-compress/**/*",
+          "@remusao/smaz-decompress/**/*",
+          "@remusao/trie/**/*",
+          "@types/chrome/**/*",
+          "@types/filesystem/**/*",
+          "@types/filewriter/**/*",
+          "@types/har-format/**/*",
+          "adm-zip/**/*",
+          "debug/**/*",
+          "electron-chrome-extensions/**/*",
+          "electron-chrome-web-store/**/*",
+          "ms/**/*",
+          "pbf/**/*",
+          "protocol-buffers-schema/**/*",
+          "resolve-protobuf-schema/**/*",
+          "tldts-experimental/**/*"
+        ]
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "mondium.ico"
+      }
     ]
   },
   "author": "Gökdeniz",
   "allowScripts": {
     "electron": true
+  },
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "minimatch@>=7 <11.0.1": "11.0.5"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

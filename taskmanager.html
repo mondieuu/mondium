@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' file:; style-src 'unsafe-inline'; img-src data: https: http: file: chrome-extension:">
+<title>Görev yöneticisi</title>
+<script src="i18n.js"></script>
+<style>
+:root{color-scheme:light dark;--bg:#f8fafd;--surface:#fff;--text:#202124;--dim:#5f6368;--line:#dadce0;--accent:#0b57d0;--hover:rgba(128,128,128,.08)}
+@media(prefers-color-scheme:dark){:root{--bg:#202124;--surface:#292a2d;--text:#e8eaed;--dim:#9aa0a6;--line:#3c4043;--accent:#a8c7fa}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px "Segoe UI",system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:36px 32px}header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}h1{font-size:22px;font-weight:500;margin:0 0 8px}p{color:var(--dim);margin:0;line-height:1.5}.total{color:var(--accent);font-size:14px;font-variant-numeric:tabular-nums}.controls{display:flex;gap:8px;flex-wrap:wrap}button{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:6px;min-height:32px;padding:5px 12px;cursor:pointer}button:hover{background:var(--hover)}button:disabled{opacity:.45;cursor:default}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.panel{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}.columns,.row{display:grid;grid-template-columns:minmax(200px,1fr) 135px 90px 90px 115px;gap:12px;align-items:center;padding:10px 18px}.columns{font-size:12px;color:var(--dim);border-bottom:1px solid var(--line);min-height:44px}.row{min-height:48px;border-top:1px solid color-mix(in srgb,var(--line) 45%,transparent)}.row:hover{background:var(--hover)}.numeric{text-align:right;font-variant-numeric:tabular-nums}.task{display:flex;gap:12px;align-items:center;min-width:0}.task img,.task svg{width:18px;height:18px;flex:none}.label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-button{border:0;background:none;padding:0;min-height:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sleeping{color:var(--dim)}.sleeping img{filter:grayscale(1);opacity:.45}small{color:var(--dim);font-size:11px}.action{text-align:right}.action button{min-width:88px}details+details{border-top:1px solid var(--line)}summary{display:flex;gap:10px;align-items:center;cursor:pointer;list-style:none;min-height:46px;padding:10px 18px;background:var(--hover);user-select:none}summary::-webkit-details-marker{display:none}summary:before{content:'›';font-size:20px;line-height:16px;transition:transform .12s}details[open]>summary:before{transform:rotate(90deg)}summary .count{color:var(--dim)}summary .group-memory{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums}footer{color:var(--dim);font-size:12px;margin-top:18px;line-height:1.6}#error{color:#f28b82;margin:12px 0} @media(max-width:760px){main{padding:20px 12px}header{align-items:flex-start;flex-direction:column}.columns,.row{grid-template-columns:minmax(140px,1fr) 100px 60px 90px}.pid{display:none}}
+body.popup main{padding:20px}body.popup header{margin-bottom:16px;-webkit-app-region:drag}body.popup header button{ -webkit-app-region:no-drag}body.popup h1{font-size:19px}.close-panel{display:none}body.popup .close-panel{display:block}body.popup footer{font-size:11px}body.popup .controls{align-items:center}
+</style>
+</head>
+<body><main><header><div><h1>Görev yöneticisi</h1><div class="total" id="total">Bellek ölçülüyor…</div></div><div class="controls"><button id="closePanel" class="close-panel" aria-label="Kapat">×</button><button id="refresh">Yenile</button><button id="sleep">Arka plan sekmelerini uyut</button></div></header><p id="error" role="status"></p><section class="panel" aria-label="Tarayıcı görevleri"><div class="columns"><span>Görev</span><span class="numeric">Bellek</span><span class="numeric">CPU</span><span class="numeric pid">İşlem kimliği</span><span></span></div><div id="groups"></div></section><footer>Paylaşılan süreçlerin belleği yalnızca bir kez sayılır. Uyuyan sekmeler sayfayı çalıştırmaz.<br>Bir sekmenin adına tıklayarak o sekmeye geçebilirsiniz. Değerler iki saniyede bir yenilenir.</footer></main>
+<script>
+'use strict';
+const api=window.pageApi;
+const popup=new URLSearchParams(location.search).has('popup');document.body.classList.toggle('popup',popup);document.getElementById('closePanel').onclick=()=>api?.call('task-panel-close');document.addEventListener('keydown',e=>{if(e.key==='Escape'&&popup)api?.call('task-panel-close')});
+const $=id=>document.getElementById(id),openGroups=new Map();let busy=false;
+const icon='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 2v4H5.1A8 8 0 0 1 11 4zm2 0a8 8 0 0 1 5.9 4H13V4zM4.3 10H11v4H4.3a8.3 8.3 0 0 1 0-4zM13 10h6.7a8.3 8.3 0 0 1 0 4H13v-4zm-7.9 6H11v4a8 8 0 0 1-5.9-4zM13 16h5.9a8 8 0 0 1-5.9 4v-4z"/></svg>';
+function el(tag,cls,text){const x=document.createElement(tag);if(cls)x.className=cls;if(text!=null)x.textContent=text;return x;}
+const mb=kb=>new Intl.NumberFormat(window.LANG==='en'?'en-US':'tr-TR',{maximumFractionDigits:1}).format(kb/1024)+' MB';
+function theme(d){const t=d.theme,st=document.documentElement.style;for(const n of ['--bg','--surface','--accent'])st.removeProperty(n);if(t){st.setProperty('--bg',t.page);st.setProperty('--surface',t.card||t.toolbar);st.setProperty('--accent',t.accent);}}
+function draw(data){
+ for(const node of $('groups').children)openGroups.set(node.dataset.key,node.open);
+ const focus=document.activeElement?.dataset.focus;
+ $('total').textContent='Toplam bellek: '+mb(data.total);
+ $('groups').replaceChildren(...data.groups.map(g=>{
+   const details=el('details');details.dataset.key=g.key;details.open=openGroups.has(g.key)?openGroups.get(g.key):g.key==='tabs';
+   const summary=el('summary');summary.append(el('strong',null,g.label),el('span','count','('+g.rows.length+')'),el('span','group-memory',mb(g.memory)));details.append(summary);
+   for(const task of g.rows){
+     const row=el('div','row'+(task.sleeping?' sleeping':'')),name=el('div','task'),image=el('span');image.innerHTML=icon;
+     if(task.icon){const img=el('img');img.src=task.icon;img.alt='';img.onerror=()=>{image.innerHTML=icon};image.replaceChildren(img);}name.append(image);
+     const text=el('div','label'),title=el(task.tab?'button':'span',task.tab?'task-button':null,task.title);title.title=task.title;
+     if(task.tab){title.dataset.focus='tab-'+task.id;title.onclick=()=>api.call('tasks-activate',task.id);}text.append(title);if(task.sleeping)text.append(el('small',null,' · Uyutuldu'));name.append(text);
+     row.append(name,el('span','numeric',task.shared?'Paylaşılan':mb(task.memory)),el('span','numeric',task.sleeping?'—':task.cpu.toFixed(1)+'%'),el('span','numeric pid',task.pid||'—'));
+     const action=el('div','action');if(task.tab){const sleep=el('button',null,'Uyut');sleep.disabled=!task.canSleep;sleep.dataset.focus='sleep-'+task.id;sleep.onclick=async()=>{sleep.disabled=true;await api.call('tasks-sleep',task.id);await load()};action.append(sleep);}row.append(action);details.append(row);
+   }return details;
+ }));
+ if(focus){const target=[...document.querySelectorAll('[data-focus]')].find(e=>e.dataset.focus===focus);if(target)target.focus({preventScroll:true});}
+}
+async function load(){if(busy)return;busy=true;try{draw(await api.call('tasks-list'));$('error').textContent='';}catch(e){$('error').textContent='Görev bilgileri alınamadı. Yeniden deneyin.';}finally{busy=false;}}
+$('refresh').onclick=load;$('sleep').onclick=async()=>{await api.call('tasks-sleep-background');load()};
+if(api){api.get().then(theme);api.onUpdate(theme);load();setInterval(()=>{if(!document.hidden)load()},2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});}
+</script></body></html>

@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
+require('./prepare-security');
 const root = path.join(__dirname, '..');
 const electronExe = require('electron');            // path to node_modules/electron/dist/electron.exe
 let exe = electronExe;

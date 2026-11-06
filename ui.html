@@ -35,7 +35,7 @@
   .tab:hover:not(.on)::before { background:var(--tab-hover); }
   .tab::after { content:""; position:absolute; left:0; top:10px; width:1px; height:16px; background:var(--sep); }
   .tab:first-child::after, .tab.on::after, .tab:hover::after, .tab.on + .tab::after, .tab:hover + .tab::after { display:none; }
-  .tab.on { background:var(--toolbar); color:var(--text); border-radius:10px 10px 0 0; z-index:2; }
+  .tab.on { background:var(--active-tab, var(--toolbar)); color:var(--text); border-radius:10px 10px 0 0; z-index:2; }
   .tab.on .c1, .tab.on .c2 { position:absolute; bottom:0; width:10px; height:10px; display:block; }
   .tab .c1, .tab .c2 { display:none; }
   .tab.on .c1 { left:-10px; background:radial-gradient(circle at 0 0, transparent 10px, var(--toolbar) 10.5px); }
@@ -75,9 +75,9 @@
   body.vert #toolbar > * { -webkit-app-region:no-drag; }
   body.vert.overlay #toolbar { padding-right:146px; }
   body.vert #bbar, body.vert #find { flex:none; }
-  body.vert #side { display:flex; flex-direction:column; flex:1; min-height:0; width:var(--sw, 240px); background:var(--frame); position:relative; }
+  body.vert #side { display:flex; flex-direction:column; flex:1; min-height:0; width:var(--sw, 240px); background:var(--frame); position:absolute; left:0; top:var(--top, 46px); bottom:0; transition:transform .18s ease; transform:translateX(0); }
   /* Auto-hide mode: sidebar hidden on the left, slides over the page at the same width when opened */
-  body.vert.autohide #side { position:absolute; left:0; top:var(--top, 46px); bottom:0; transform:translateX(-102%); transition:transform .16s ease-out;
+  body.vert.autohide #side { transform:translateX(-102%);
     box-shadow:6px 0 18px rgba(0,0,0,.28); z-index:60; border-radius:0 10px 10px 0; }
   body.vert.autohide.reveal #side { transform:none; }
   #sidehead { flex:none; display:flex; align-items:center; gap:2px; padding:8px 6px 6px; }
@@ -94,11 +94,48 @@
   #sidetitle { flex:1; }
   #sidespace { flex:1; min-height:8px; }
   #sidefoot { flex:none; padding:4px 6px 8px; display:flex; }
+  /* Grid of pinned tabs at the top of the vertical sidebar */
+  #pinnedtabs { display:none; }
+  body.vert #pinnedtabs:not(:empty) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:2px 8px 12px; max-height:45%; min-height:0; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; overscroll-behavior:contain; flex:0 0 auto; align-content:start; -webkit-app-region:no-drag; }
+  body.vert #pinnedtabs .tab { width:100%; min-width:0; height:48px; padding:0; justify-content:center; border-radius:8px; background:var(--active-tab,var(--omni)); }
+  body.vert #pinnedtabs .tab.on { background:var(--omni-hover); box-shadow:inset 0 0 0 1px var(--tab-accent,#808080); }
+  body.vert #pinnedtabs .tab:hover { background:var(--tab-hover); }
+  body.vert #pinnedtabs .title, body.vert #pinnedtabs .x, body.vert #pinnedtabs .c1, body.vert #pinnedtabs .c2 { display:none; }
+  body.vert.slim #pinnedtabs:not(:empty) { grid-template-columns:1fr; gap:6px; padding:2px 6px 8px; }
+  body.vert #pinnedtabs .ico { opacity:1; }
+  .tab.sleep .ico, body.vert #pinnedtabs .tab.sleep .ico { opacity:.45; filter:grayscale(1); }
+  body.vert #pinnedtabs::-webkit-scrollbar { display:none; }
+  body.vert #pinnedtabs .tab.placeholder { opacity:1; background:var(--omni-hover); box-shadow:inset 0 0 0 1px var(--tab-accent,#808080); }
+  body.vert #pinnedtabs .tab.placeholder .ico { opacity:1; filter:none; }
+  body.vert.slim #pinnedtabs .tab { height:36px; }
+  body.vert.slim #pinnedtabs:not(:empty) { gap:2px; }
+  #pinnedSeparator { display:none; }
+  body.vert #pinnedtabs:not(:empty) + #pinnedSeparator { display:block; flex:none; height:1px; margin:4px 8px 10px; background:color-mix(in srgb,var(--border) 35%,transparent); }
+  body.vert #side { overflow:hidden; }
+  body.vert #vtabs { position:relative; isolation:isolate; }
+  .pinned-ghost { position:fixed; z-index:140; pointer-events:none; display:flex; align-items:center; justify-content:center; padding:0; border-radius:8px; background:var(--omni-hover); box-shadow:inset 0 0 0 1px var(--tab-accent,#808080),0 8px 22px rgba(0,0,0,.4); }
+  .pinned-ghost .ico { opacity:1; filter:none; }
+  .pinned-ghost .title, .pinned-ghost .x, .pinned-ghost .c1, .pinned-ghost .c2 { display:none; }
+  /* Optional search/address box shown before a new tab opens */
+  #newtabPrompt { position:fixed; inset:0; z-index:110; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.38); }
+  #newtabPrompt[hidden] { display:none; }
+  #newtabPrompt form { position:absolute; left:50%; top:max(16px,calc(35% - 33px)); transform:translateX(-50%); display:flex; flex-direction:column; align-items:stretch; gap:0; width:min(750px,calc(100vw - 64px)); padding:20px; background:var(--menu); border:1px solid var(--border); border-radius:10px; box-shadow:0 16px 80px rgba(0,0,0,.35); }
+  .newtab-row { display:flex; align-items:center; gap:16px; height:24px; }
+  #newtabSearchIcon { display:flex; align-items:center; flex:none; }
+  #newtabSearchIcon svg { width:18px; height:18px; }
+  #newtabQuery { width:100%; height:24px; line-height:24px; padding:0; border:0; outline:0; background:none; color:var(--text); font:14px/24px "Segoe UI",sans-serif; }
+  #newtabResults:empty { display:none; }
+  #newtabResults { margin:14px -12px -12px; max-height:min(340px,calc(65vh - 64px)); overflow:auto; }
+  #newtabResults button { display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:8px 12px; text-align:left; border-radius:6px; }
+  #newtabResults button.sel, #newtabResults button:hover { background:var(--hover); }
+  #newtabResults img, #newtabResults svg { width:18px; height:18px; flex:none; }
+  #newtabResults .result-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #newtabResults small { display:block; color:var(--dim); overflow:hidden; text-overflow:ellipsis; }
   #vtabs { flex:0 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; padding:0 6px 8px; display:flex; flex-direction:column; gap:2px; scrollbar-width:thin; }
   body.vert .tab { width:auto; min-width:0; height:36px; flex:none; border-radius:8px; padding:0 4px 0 10px; gap:10px; }
   body.vert .tab::before, body.vert .tab::after, body.vert .tab .c1, body.vert .tab .c2 { display:none !important; }
   body.vert .tab:hover:not(.on) { background:var(--tab-hover); }
-  body.vert .tab.on { background:var(--toolbar); color:var(--text); border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.18); }
+  body.vert .tab.on { background:var(--active-tab, var(--toolbar)); color:var(--text); border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.18); }
   body.vert .tab.pin { width:auto; padding:0 4px 0 10px; justify-content:flex-start; gap:10px; }
   body.vert .tab.pin .title { display:block; }
   body.vert .tab.pin .aud { position:static; background:none; width:16px; height:16px; }
@@ -340,12 +377,15 @@
       <span id="sidetitle"></span>
       <button id="shide" title="Kenar çubuğunu gizle (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M3 5v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2zm6 14H5V5h4v14zm2 0V5h8v14h-8z"/></svg></button>
     </div>
+    <div id="pinnedtabs"></div>
+    <div id="pinnedSeparator" role="separator"></div>
     <div id="vtabs"></div>
     <div id="sidespace" title="Pencereyi taşımak için sürükleyin"></div>
     <div id="sidefoot"><button id="snew" title="Yeni sekme (Ctrl+T)"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>Yeni sekme</span></button></div>
     <div id="grip" title="Genişliği ayarlamak için sürükleyin"></div>
   </div>
 
+<div id="newtabPrompt" hidden><form><div class="newtab-row"><span id="newtabSearchIcon"></span><input id="newtabQuery" autocomplete="off" spellcheck="false" aria-label="Yeni sekmede ara veya adres yaz" role="combobox" aria-autocomplete="list" aria-controls="newtabResults" aria-expanded="false"></div><div id="newtabResults" role="listbox"></div></form></div>
 <div id="sug" hidden></div>
 <div id="pop" hidden></div>
 
@@ -539,14 +579,20 @@ browserApi.onFocusFind(() => { findq.focus(); findq.select(); if (findq.value) s
 browserApi.onFound((r) => { $('findn').textContent = findq.value ? `${r.active}/${r.total}` : ''; });
 
 // ---------- Tabs
-function tabEl(t, active) {
-  const d = document.createElement('div');
+function tabEl(t, active, existing) {
+  const d = existing || document.createElement('div');
+  const oldIcon = d.querySelector('.ico'), oldIconKey = d.dataset.iconKey;
+  d.replaceChildren();
   d.className = 'tab' + (active ? ' on' : '') + (t.sleeping ? ' sleep' : '') + (t.pinned ? ' pin' : '');
   d.dataset.id = t.id;
+  d.style.setProperty('--tab-accent', /^#[0-9a-f]{6}$/i.test(t.iconColor || '') ? t.iconColor : '#808080');
   d.title = (t.title || 'Yeni Sekme') + (t.sleeping ? '\n(Uyutuldu - bellek boşaltıldı)' : '') + (t.muted ? '\n(Sesi kapalı)' : '') + (t.volume !== 100 ? '\nSes: %' + t.volume : '');
   const c1 = document.createElement('span'); c1.className = 'c1'; d.appendChild(c1);
   const ico = document.createElement('span'); ico.className = 'ico';
-  if (t.loading) ico.innerHTML = '<span class="spin"></span>';
+  const iconKey = t.loading ? 'loading' : t.favicon || 'globe';
+  d.dataset.iconKey = iconKey;
+  if (oldIcon && oldIconKey === iconKey) ico.replaceChildren(...oldIcon.childNodes);   // keep the decoded favicon: no flicker
+  else if (t.loading) ico.innerHTML = '<span class="spin"></span>';
   else if (t.favicon) {
     const im = document.createElement('img'); im.src = t.favicon; im.alt = '';
     im.onerror = () => { ico.innerHTML = I.globe; };
@@ -572,7 +618,7 @@ function tabEl(t, active) {
   d.onmousedown = (e) => {
     if (e.button === 1) { e.preventDefault(); send('close-tab', t.id); return; }
     if (e.button !== 0) return;
-    send('activate', t.id);
+    e.preventDefault();
     drag = { id: t.id, el: d, startX: e.clientX, startY: e.clientY, moved: false };
   };
   d.oncontextmenu = (e) => { e.preventDefault(); send('tab-menu', { id: t.id, x: e.clientX, y: e.clientY }); };
@@ -584,8 +630,39 @@ function tabEl(t, active) {
 window.addEventListener('mousemove', (e) => {
   if (!drag) return;
   const vert = document.body.classList.contains('vert');
-  const dx = vert ? e.clientY - drag.startY : e.clientX - drag.startX;
-  if (!drag.moved && Math.abs(dx) < 6) return;
+  const pinned = vert && drag.el.parentNode === $('pinnedtabs');
+  const x = e.clientX - drag.startX, y = e.clientY - drag.startY;
+  const dx = vert ? y : x;
+  if (!drag.moved && (pinned ? Math.hypot(x, y) : Math.abs(dx)) < 6) return;
+  if (pinned) {
+    if (!drag.moved) {
+      const r = drag.el.getBoundingClientRect();
+      drag.slots = [...$('pinnedtabs').children].map((el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      drag.ghost = drag.el.cloneNode(true); drag.ghost.removeAttribute('data-id');
+      drag.ghost.className = 'pinned-ghost tab';
+      Object.assign(drag.ghost.style, { width: r.width + 'px', height: r.height + 'px', left: r.left + 'px', top: r.top + 'px' });
+      document.body.append(drag.ghost); drag.el.classList.add('placeholder');
+      send('tab-drag-start');
+    }
+    drag.moved = true;
+    drag.ghost.style.transform = `translate(${x}px,${y}px)`;
+    const grid = $('pinnedtabs');
+    // Hit-test fixed grid slots, never the animated tiles moving underneath the cursor.
+    let target = 0, distance = Infinity;
+    drag.slots.forEach((slot, index) => { const d = (e.clientX - slot.x) ** 2 + (e.clientY - slot.y) ** 2; if (d < distance) { distance = d; target = index; } });
+    const children = [...grid.children];
+    if (children.indexOf(drag.el) !== target) {
+      const positions = new Map(children.map((el) => [el, el.getBoundingClientRect()]));
+      for (const el of children) for (const animation of el.getAnimations()) animation.cancel();
+      const ordered = children.filter((el) => el !== drag.el); ordered.splice(target, 0, drag.el); grid.replaceChildren(...ordered);
+      for (const el of ordered) {
+        if (el === drag.el) continue;
+        const old = positions.get(el), next = el.getBoundingClientRect();
+        if (old.left !== next.left || old.top !== next.top) el.animate([{ transform: `translate(${old.left - next.left}px,${old.top - next.top}px)` }, { transform: 'none' }], { duration: 130, easing: 'ease-out' });
+      }
+    }
+    return;
+  }
   drag.moved = true;
   drag.el.classList.add('drag');
   drag.el.style.transform = vert ? `translateY(${dx}px)` : `translateX(${dx}px)`;
@@ -593,20 +670,46 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', (e) => {
   if (!drag) return;
   const d = drag; drag = null;
-  if (!d.moved) return;
-  const els = [...tabsEl.children];
+  if (!d.moved) { send('activate', d.id); return; }
+  const pinnedDrag = document.body.classList.contains('vert') && d.el.parentNode === $('pinnedtabs');
+  const els = pinnedDrag ? [...$('pinnedtabs').children] : document.body.classList.contains('vert') ? [...$('pinnedtabs').children, ...tabsEl.children] : [...tabsEl.children];
   let to = 0;
   for (const el of els) {
     if (el === d.el) continue;
     const r = el.getBoundingClientRect();
-    if (document.body.classList.contains('vert') ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2) to++;
+    if (pinnedDrag ? e.clientY > r.bottom || (e.clientY >= r.top && e.clientX > r.left + r.width / 2) : document.body.classList.contains('vert') ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2) to++;
   }
+  if (pinnedDrag) to = [...$('pinnedtabs').children].indexOf(d.el);
+  if (d.ghost) { d.ghost.remove(); d.el.classList.remove('placeholder'); send('tab-drag-end'); }
   d.el.style.transform = '';
   d.el.classList.remove('drag');
   send('move-tab', { id: d.id, to });
-  if (pending) { const s = pending; pending = null; render(s); }
+  if (pending) {
+    const s = pending; pending = null;
+    if (pinnedDrag) { const ids = [...$('pinnedtabs').children].map((el) => Number(el.dataset.id)); s.tabs = ids.map((id) => s.tabs.find((t) => t.id === id)).filter(Boolean).concat(s.tabs.filter((t) => !t.pinned)); }
+    render(s);
+  }
 });
 
+window.addEventListener('blur', () => {
+  if (!drag || !drag.ghost) return;
+  drag.ghost.remove(); drag.el.classList.remove('placeholder'); drag = null;
+  send('tab-drag-end'); tabsKey = '';
+  if (state) render(pending || state);
+  pending = null;
+});
+// Reuse tab elements so a state update does not replace favicons or restart their load
+function reconcileTabs(container, items, state) {
+  const old = new Map([...container.children].map((el) => [Number(el.dataset.id), el]));
+  items.forEach((tab, index) => {
+    let el = old.get(tab.id);
+    const key = JSON.stringify(tab) + '|' + (tab.id === state.activeId) + '|' + state.tabAudio;
+    if (!el || el.dataset.renderKey !== key) { el = tabEl(tab, tab.id === state.activeId, el); el.dataset.renderKey = key; }
+    if (container.children[index] !== el) container.insertBefore(el, container.children[index] || null);
+    old.delete(tab.id);
+  });
+  for (const el of old.values()) el.remove();
+}
 function fitTabs() {
   if (document.body.classList.contains('vert')) { for (const el of tabsEl.children) el.classList.remove('narrow'); return; }
   const first = tabsEl.querySelector('.tab:not(.pin)');   // pinned tabs are always narrow; measure a normal tab
@@ -614,7 +717,15 @@ function fitTabs() {
   const w = first.getBoundingClientRect().width;
   for (const el of tabsEl.children) el.classList.toggle('narrow', w < 80);
 }
-window.addEventListener('resize', fitTabs);
+function fitPinnedArea() {
+  if (!document.body.classList.contains('vert')) return;
+  const grid = $('pinnedtabs'), slim = document.body.classList.contains('slim');
+  const height = slim ? 36 : 48, gap = slim ? 2 : 8, padding = slim ? 10 : 14;
+  const budget = Math.max(height + padding, $('side').clientHeight * 0.45);
+  const rows = Math.max(1, Math.floor((budget - padding + gap) / (height + gap)));
+  grid.style.maxHeight = (rows * height + (rows - 1) * gap + padding) + 'px';
+}
+window.addEventListener('resize', () => { fitTabs(); fitPinnedArea(); });
 
 // ---------- State
 let pending = null;
@@ -625,12 +736,13 @@ function applyThemeVars(t) {
   if (key === themeKey) return;
   themeKey = key;
   const st = document.documentElement.style;
-  const names = ['--frame', '--toolbar', '--omni', '--omni-hover', '--accent', '--badge', '--tab-hover', '--menu'];
+  const names = ['--frame', '--toolbar', '--omni', '--omni-hover', '--accent', '--badge', '--tab-hover', '--menu', '--active-tab'];
   if (!t) { names.forEach((n) => st.removeProperty(n)); return; }
   st.setProperty('--frame', t.frame);
   st.setProperty('--toolbar', t.toolbar);
   st.setProperty('--omni', t.omni);
-  st.setProperty('--omni-hover', t.omni);
+  st.setProperty('--omni-hover', t.omniHover || t.omni);
+  if (t.activeTab) st.setProperty('--active-tab', t.activeTab); else st.removeProperty('--active-tab');
   st.setProperty('--accent', t.accent);
   st.setProperty('--badge', t.accent);
   st.setProperty('--tab-hover', t.mode === 'dark' ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.45)');
@@ -638,7 +750,14 @@ function applyThemeVars(t) {
 }
 function render(s) {
   applyThemeVars(s.theme);
-  if (drag && drag.moved) { pending = s; return; }
+  if (drag && drag.moved) {
+    const tab = s.tabs.find((t) => t.id === drag.id);
+    const accent = /^#[0-9a-f]{6}$/i.test(tab?.iconColor || '') ? tab.iconColor : '#808080';
+    drag.el.style.setProperty('--tab-accent', accent);
+    if (drag.ghost) drag.ghost.style.setProperty('--tab-accent', accent);
+    pending = s;
+    return;
+  }
   state = s;
   document.body.classList.toggle('find', !!s.findOpen);
   renderSide(s);
@@ -646,10 +765,12 @@ function render(s) {
   const tKey = s.activeId + '|' + JSON.stringify(s.tabs);
   if (tKey !== tabsKey) {
     tabsKey = tKey;
-    tabsEl.replaceChildren(...s.tabs.map((t) => tabEl(t, t.id === s.activeId)));
-    if (s.vertical) { const on = tabsEl.querySelector('.tab.on'); if (on) on.scrollIntoView({ block: 'nearest' }); }
-    if (drag) { const el = tabsEl.querySelector(`[data-id="${drag.id}"]`); if (el) drag.el = el; }
+    reconcileTabs($('pinnedtabs'), s.vertical ? s.tabs.filter((t) => t.pinned) : [], s);
+    reconcileTabs(tabsEl, s.tabs.filter((t) => !s.vertical || !t.pinned), s);
+    if (s.vertical) { const on = tabsEl.querySelector('.tab.on'); const list = $('vtabs'); if (on && list) { const y = on.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop; if (y < list.scrollTop) list.scrollTop = y; else if (y + on.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = y + on.offsetHeight - list.clientHeight; } }
+    if (drag) { const el = document.querySelector(`.tab[data-id="${drag.id}"]`); if (el) drag.el = el; }
     fitTabs();
+    fitPinnedArea();
   }
   $('back').disabled = !s.canBack;
   $('fwd').disabled = !s.canForward;
@@ -696,7 +817,7 @@ function renderSide(s) {
   const body = document.body;
   body.classList.toggle('vert', vert);
   body.classList.toggle('autohide', vert && !!s.autoHide);
-  if (!s.sideOpen && !sizing) body.classList.remove('reveal');
+  if (!sizing) body.classList.toggle('reveal', !!s.sideOpen);
   // Tab list and the "Incognito" badge move depending on the layout
   const home = vert ? $('vtabs') : $('strip');
   if (tabsEl.parentNode !== home) {
@@ -718,6 +839,7 @@ function renderSide(s) {
 function setSideWidth(w) {
   document.documentElement.style.setProperty('--sw', w + 'px');
   document.body.classList.toggle('slim', w < 120);
+  fitPinnedArea();
 }
 $('snew').onclick = () => send('new-tab');
 $('shide').onclick = () => send('toggle-autohide');
@@ -748,18 +870,8 @@ window.addEventListener('mouseup', () => {
   if (sizeW) send('side-width', sizeW);
   send('side-drag-end');
 });
-// Opened sidebar closes when the mouse leaves it (not while a menu/bubble is open)
-sideEl.addEventListener('mouseleave', (e) => {
-  if (!state || !state.autoHide || !document.body.classList.contains('reveal') || menu || prompt || chooser) return;
-  send('side-hide');
-});
-let revealTimer = 0;
-browserApi.onSideReveal((v) => {
-  document.body.classList.toggle('reveal', !!v);
-  // If the mouse is outside right after opening (just brushed the edge), close; cancel the previous open's timer
-  clearTimeout(revealTimer); revealTimer = 0;
-  if (v) revealTimer = setTimeout(() => { revealTimer = 0; if (!sideEl.matches(':hover') && state && state.autoHide) send('side-hide'); }, 700);
-});
+// Visibility comes from the main process (native cursor tracking); DOM replacement cannot dismiss the sidebar.
+browserApi.onSideReveal((v) => { document.body.classList.toggle('reveal', !!v); });
 function renderBookmarks(s) {
   document.body.classList.toggle('bbar', !!s.bookmarksBar);
   const key = s.bookmarksBar + JSON.stringify(s.bookmarks);
@@ -787,7 +899,7 @@ function renderBookmarks(s) {
     else el.appendChild(globeEl());
     const t = document.createElement('span'); t.textContent = b.title || b.url; el.appendChild(t);
     el.onclick = (e) => send('bookmark-open', { url: b.url, newTab: e.ctrlKey || e.metaKey });
-    el.onauxclick = (e) => { if (e.button === 1) send('bookmark-open', { url: b.url, newTab: true }); };
+    el.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); send('bookmark-open', { url: b.url, newTab: true }); } };
     el.oncontextmenu = (e) => { e.preventDefault(); send('bookmark-menu', { index: i, x: e.clientX, y: e.clientY }); };
     return el;
   }));
@@ -1140,7 +1252,74 @@ function drawMenu() {
 
 browserApi.onMenuOpen((m) => { chooser = null; menu = m; pop.hidden = false; drawMenu(); });
 browserApi.onMenuData((d) => { if (menu && menu.kind !== 'volume') { menu.data = d; drawMenu(); } });
+// Optional new tab box (settings.newTabPrompt): search or type an address before a tab is created
+let promptRows = [], promptSelected = 0, promptTyped = '';
+function selectPromptResult(index, fill = false) {
+  promptSelected = (index + promptRows.length) % Math.max(1, promptRows.length);
+  [...$('newtabResults').children].forEach((el, i) => { el.classList.toggle('sel', i === promptSelected); el.setAttribute('aria-selected', String(i === promptSelected)); });
+  if (fill) $('newtabQuery').value = promptSelected === 0 ? promptTyped : promptRows[promptSelected].url;
+}
+function submitPrompt() {
+  const r = promptRows[promptSelected];
+  const value = r && r.url ? r.url : $('newtabQuery').value.trim();
+  if (value) send('newtab-submit', value);
+}
+$('newtabQuery').oninput = () => {
+  promptTyped = $('newtabQuery').value; promptSelected = 0;
+  if (!promptTyped.trim()) { promptRows = []; $('newtabResults').replaceChildren(); $('newtabQuery').setAttribute('aria-expanded', 'false'); return; }
+  // Keep the current suggestions visible until their replacement arrives.
+  if (promptRows.length) {
+    promptRows[0] = { title: promptTyped };
+    const label = $('newtabResults').firstElementChild?.querySelector('.result-label');
+    if (label) label.textContent = promptTyped;
+    selectPromptResult(0);
+  }
+  send('newtab-query', promptTyped);
+};
+browserApi.onNewTabResults((r) => {
+  if ($('newtabPrompt').hidden || r.q !== promptTyped) return;
+  promptRows = r.items.length ? [{ title: promptTyped }, ...r.items] : []; promptSelected = 0;
+  $('newtabQuery').setAttribute('aria-expanded', String(promptRows.length > 0));
+  const existing = new Map([...$('newtabResults').children].map((row) => [row.dataset.key, row]));
+  $('newtabResults').replaceChildren(...promptRows.map((item, i) => {
+    const key = item.url || 'query';
+    const row = existing.get(key) || document.createElement('button');
+    row.dataset.key = key; row.type = 'button'; row.setAttribute('role', 'option');
+    let icon = row.firstElementChild;
+    if (!icon) { icon = document.createElement('span'); row.append(icon); }
+    const iconKey = item.favicon || (i === 0 ? 'search' : item.kind || 'history');
+    if (row.dataset.icon !== iconKey) {
+      row.dataset.icon = iconKey;
+      icon.innerHTML = i === 0 ? I.search : item.kind === 'bm' ? I.starSmall : I.clock;
+      if (item.favicon) { const img = document.createElement('img'); img.src = item.favicon; img.alt = ''; img.onerror = () => { icon.innerHTML = I.globe; }; icon.replaceChildren(img); }
+    }
+    let label = row.querySelector('.result-label');
+    if (!label) { label = document.createElement('span'); label.className = 'result-label'; row.append(label); }
+    label.textContent = item.title || item.url;
+    if (item.url) { const small = document.createElement('small'); small.textContent = prettyUrl(item.url); label.append(small); }
+    row.append(icon, label);
+    row.onmousedown = (e) => e.preventDefault();
+    row.onclick = () => { promptSelected = i; submitPrompt(); };
+    row.onmouseenter = () => selectPromptResult(i);
+    return row;
+  }));
+  selectPromptResult(0);
+});
+browserApi.onNewTabPrompt((d) => {
+  promptRows = []; promptSelected = 0; promptTyped = ''; $('newtabResults').replaceChildren(); $('newtabQuery').setAttribute('aria-expanded', 'false');
+  $('newtabPrompt').hidden = false; $('newtabQuery').value = '';
+  $('newtabQuery').placeholder = L((d.searchName || 'Google') + ' ile arama yapın veya adres yazın', 'Search ' + (d.searchName || 'Google') + ' or type an address');
+  $('newtabSearchIcon').innerHTML = I.search;
+  requestAnimationFrame(() => $('newtabQuery').focus());
+});
+$('newtabPrompt').querySelector('form').onsubmit = (e) => { e.preventDefault(); submitPrompt(); };
+$('newtabPrompt').onmousedown = (e) => { if (e.target === $('newtabPrompt')) send('newtab-cancel'); };
+$('newtabQuery').onkeydown = (e) => {
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && promptRows.length) { e.preventDefault(); selectPromptResult(promptSelected + (e.key === 'ArrowDown' ? 1 : -1), true); }
+  else if (e.key === 'Escape') { e.preventDefault(); send('newtab-cancel'); }
+};
 browserApi.onMenuClosed(() => {
+  $('newtabPrompt').hidden = true;
   if (menu || chooser) { menu = null; chooser = null; pop.hidden = true; pop.replaceChildren(); }
   if (!sug.hidden) { sug.hidden = true; sug.replaceChildren(); sugRows = []; }
 });
