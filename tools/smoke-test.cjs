@@ -108,7 +108,8 @@ async function macWindowButtons({ uiWs, mainWs, st }) {
     await wait(1500);
     const gap = await val(uiWs, `getComputedStyle(document.getElementById('strip')).paddingLeft`);
     const seen = await val(uiWs, `document.visibilityState === 'visible' && document.getElementById('strip').getBoundingClientRect().height > 0`);
-    report(seen && gap === '8px', 'green button: fullscreen keeps tabs and toolbar', `tab strip gap ${gap}`);
+    const why = await val(uiWs, `JSON.stringify({ fs: state && state.fullscreen, body: document.body.className })`);
+    report(seen && gap === '8px', 'green button: fullscreen keeps tabs and toolbar', `tab strip gap ${gap}, ui ${why}`);
     desktopShot('mac-fullscreen.png');
     await M('w.setFullScreen(false); return 1');
     await until(async () => !(await M('return w.isFullScreen()')), 10000);

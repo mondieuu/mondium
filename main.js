@@ -3323,7 +3323,8 @@ function createWindow(opts = {}) {
   const on = (ev, fn) => win.on(ev, (...a) => { useWin(w); return fn(...a); });
   for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) on(ev, layout);
   on('leave-full-screen', () => { if (htmlFullscreen) { htmlFullscreen = false; layout(); } });
-  if (isMac) for (const ev of ['enter-full-screen', 'leave-full-screen']) on(ev, pushState);   // the UI drops the button gap in fullscreen
+  // The UI drops the button gap in fullscreen. Sent a moment later: right at the event macOS may still report the old state.
+  if (isMac) for (const ev of ['enter-full-screen', 'leave-full-screen', 'resize']) on(ev, schedulePush);
   on('app-command', (_e, cmd) => {
     if (cmd === 'browser-backward') goBack();
     if (cmd === 'browser-forward') goForward();
