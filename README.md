@@ -14,7 +14,7 @@
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2f2f35">
   <img alt="Engine: Chromium" src="https://img.shields.io/badge/engine-Chromium-2f2f35">
-  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-2f2f35">
+  <img alt="Platform: Windows, macOS, Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2f2f35">
   <img alt="Vanilla JS" src="https://img.shields.io/badge/UI-vanilla%20JS-2f2f35">
 </p>
 
@@ -101,15 +101,39 @@ Clear everything, except the sites you choose to keep signed in to.
 
 ## Download
 
-**[⬇ Download the latest Mondium for Windows](https://github.com/mondieuu/mondium/releases/latest)** (64-bit, Windows 10/11): grab `Mondium-Setup-<version>.exe` under *Assets*.
+**[⬇ Download the latest Mondium](https://github.com/mondieuu/mondium/releases/latest)** and pick your file under *Assets*:
 
-The installer works like Chrome's: one click, no admin rights, installs for the current user and opens Mondium when it's done. Mondium also shows up under **Settings → Apps → Default apps**, so you can make it your default browser.
+| System | File |
+|---|---|
+| Windows 10/11 (64-bit) | `Mondium-Setup-<version>.exe` |
+| macOS, Apple Silicon | `Mondium-<version>-mac-arm64.dmg` |
+| macOS, Intel | `Mondium-<version>-mac-x64.dmg` |
+| Debian, Ubuntu and similar (64-bit) | `Mondium-<version>-linux-x64.deb` |
+| Other Linux (64-bit) | `Mondium-<version>-linux-x64.AppImage` |
+
+**Windows:** the installer works like Chrome's: one click, no admin rights, installs for the current user and opens Mondium when it's done. You can make it your default browser under **Settings → Apps → Default apps**.
 
 > The installer is not code-signed yet, so Windows SmartScreen may show a warning. Click **More info → Run anyway**.
 
+**macOS:** open the disk image and drag Mondium to Applications. You can make it your default browser under **System Settings → Desktop & Dock**.
+
+> The app is not notarized by Apple, so macOS may say it is damaged or can't be checked. After moving it to Applications, run this once in Terminal:
+>
+> ```bash
+> xattr -cr /Applications/Mondium.app
+> ```
+
+**Linux:** install the `.deb` with the command below, or make the AppImage executable and run it. Mondium is listed as a web browser, so you can choose it in your system's default applications.
+
+```bash
+sudo apt install ./Mondium-<version>-linux-x64.deb
+```
+
+> On Ubuntu 23.10 and newer, use the `.deb`: the system's AppArmor rules stop AppImages from starting Chromium's sandbox. Mondium doesn't turn the sandbox off to get around this.
+
 ## Build from source
 
-Requirements: [Node.js](https://nodejs.org/) 20 or newer, Windows 10/11.
+Requirements: [Node.js](https://nodejs.org/) 22 or newer on Windows, macOS or Linux.
 
 ```bash
 git clone https://github.com/mondieuu/mondium.git
@@ -118,11 +142,21 @@ npm install
 npm start
 ```
 
-Build the Windows installer (`dist/Mondium-Setup-<version>.exe`), or just run `build-installer.bat`:
+Build the installer for your system into `dist/`. On Windows you can also run `build-installer.bat`.
 
 ```bash
 npm run dist:win
 ```
+
+```bash
+npm run dist:mac
+```
+
+```bash
+npm run dist:linux
+```
+
+Every version tag builds all of them in GitHub Actions and tests the real installers on each system ([workflow](.github/workflows/build.yml)).
 
 Update the bundled uBlock Origin to the latest release:
 
@@ -150,7 +184,7 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 
 ## Privacy note
 
-Mondium has no server and collects nothing. All data (settings, history, downloads, cookies) stays in `%APPDATA%\Mondium` on your machine.
+Mondium has no server and collects nothing. All data (settings, history, downloads, cookies) stays on your machine: in `%APPDATA%\Mondium` on Windows, `~/Library/Application Support/Mondium` on macOS and `~/.config/Mondium` on Linux.
 
 ## License
 
@@ -180,9 +214,35 @@ Mondium is not affiliated with Google or the Chromium project.
 - **Uyumluluk:** Chrome Web Mağazası uzantıları, Widevine DRM, WebHID / WebUSB / Web Serial / Web Bluetooth, yerleşik PDF görüntüleyici.
 
 ### İndir
-**[⬇ En son Mondium'u indir](https://github.com/mondieuu/mondium/releases/latest)** (Windows 10/11, 64 bit): *Assets* altındaki `Mondium-Setup-<sürüm>.exe` dosyası. Kurulum Chrome'unki gibi: tek tık, yönetici izni gerekmez, bitince Mondium açılır. **Ayarlar → Uygulamalar → Varsayılan uygulamalar** bölümünden varsayılan tarayıcı yapabilirsiniz.
+**[⬇ En son Mondium'u indir](https://github.com/mondieuu/mondium/releases/latest)** ve *Assets* altından sisteminize uygun dosyayı seçin:
+
+| Sistem | Dosya |
+|---|---|
+| Windows 10/11 (64 bit) | `Mondium-Setup-<sürüm>.exe` |
+| macOS, Apple Silicon | `Mondium-<sürüm>-mac-arm64.dmg` |
+| macOS, Intel | `Mondium-<sürüm>-mac-x64.dmg` |
+| Debian, Ubuntu ve benzerleri (64 bit) | `Mondium-<sürüm>-linux-x64.deb` |
+| Diğer Linux dağıtımları (64 bit) | `Mondium-<sürüm>-linux-x64.AppImage` |
+
+**Windows:** Kurulum Chrome'unki gibi: tek tık, yönetici izni gerekmez, bitince Mondium açılır. **Ayarlar → Uygulamalar → Varsayılan uygulamalar** bölümünden varsayılan tarayıcı yapabilirsiniz.
 
 > Kurulum dosyası henüz kod imzalı değil, Windows SmartScreen uyarı verebilir. **Ek bilgi → Yine de çalıştır** seçeneğine tıklayın.
+
+**macOS:** Disk görüntüsünü açıp Mondium'u Uygulamalar klasörüne sürükleyin. **Sistem Ayarları → Masaüstü ve Dock** bölümünden varsayılan tarayıcı yapabilirsiniz.
+
+> Uygulama Apple tarafından onaylanmış (notarized) değil, macOS "hasarlı" ya da "denetlenemiyor" diyebilir. Uygulamalar klasörüne taşıdıktan sonra Terminal'de bir kez şunu çalıştırın:
+>
+> ```bash
+> xattr -cr /Applications/Mondium.app
+> ```
+
+**Linux:** `.deb` dosyasını aşağıdaki komutla kurun ya da AppImage dosyasını çalıştırılabilir yapıp açın. Mondium web tarayıcısı olarak listelenir, sistemin varsayılan uygulamalar bölümünden seçebilirsiniz.
+
+```bash
+sudo apt install ./Mondium-<sürüm>-linux-x64.deb
+```
+
+> Ubuntu 23.10 ve sonrasında `.deb` kullanın: sistemin AppArmor kuralları AppImage'ların Chromium korumalı alanını (sandbox) başlatmasını engelliyor. Mondium bunu aşmak için korumalı alanı kapatmaz.
 
 ### Kaynaktan derleme
 ```bash
@@ -191,9 +251,9 @@ cd mondium
 npm install
 npm start
 ```
-Kurulum dosyası için `npm run dist:win` ya da `build-installer.bat`.
+Kurulum dosyası için `npm run dist:win`, `npm run dist:mac` ya da `npm run dist:linux`.
 
 ### Gizlilik notu
-Mondium'un sunucusu yok ve hiçbir veri toplamaz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda `%APPDATA%\Mondium` klasöründe kalır.
+Mondium'un sunucusu yok ve hiçbir veri toplamaz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda kalır: Windows'ta `%APPDATA%\Mondium`, macOS'ta `~/Library/Application Support/Mondium`, Linux'ta `~/.config/Mondium`.
 
 Lisans: [GPL-3.0](LICENSE). Kaynak gösterimi için [NOTICE](NOTICE.md). Mondium, Google veya Chromium projesiyle bağlantılı değildir.

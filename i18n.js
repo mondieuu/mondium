@@ -755,7 +755,7 @@
     const mac = ((root.pageApi && root.pageApi.platform) || (root.browserApi && root.browserApi.platform)) === 'darwin';
     if ((lang !== 'en' && !mac) || typeof document === 'undefined') return;
     if (lang === 'en') document.documentElement.lang = 'en';
-    const show = (v) => { const t = translate(v, lang); return mac ? t.replace(/\bCtrl\+/g, '⌘') : t; };
+    const show = (v) => { const t = translate(v, lang); return mac ? t.replace(/\bCtrl\+(Shift\+)?/g, (x, shift) => (shift ? '⌘⇧' : '⌘')) : t; };
     const doText = (n) => { const v = n.nodeValue; if (!v || v.length > 2000) return; const t = show(v); if (t !== v) n.nodeValue = t; };
     const doEl = (el) => {
       for (const a of ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v) { const t = show(v); if (t !== v) el.setAttribute(a, t); } }

@@ -140,6 +140,9 @@
       },
       "artifactName": "Mondium-${version}-linux-${arch}.${ext}"
     },
+    "appImage": {
+      "compression": "gzip"
+    },
     "mac": {
       "target": [
         "dmg"
