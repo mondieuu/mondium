@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",

@@ -159,6 +159,7 @@ async function main() {
     const ready = bg && await until(() => val(bg, '!!(self.µBlock && self.µBlock.readyToFilter)'), 180000);
     report(!!ready, 'uBlock Origin ready to filter');
     if (bg) await until(() => val(bg, '!!self.__mondiumHeaders'), 20000);
+    const readyAt = Date.now();
 
     // A real page: blocking must reach the network layer, and an allowed request must still pass.
     await val(uiWs, `browserApi.send('navigate', ${JSON.stringify(base + '/page')}); 1`);
@@ -206,6 +207,15 @@ async function main() {
     desktopShot('desktop-settings.png');
 
     if (process.platform === 'darwin' && st && mainWs) await macWindowButtons({ uiWs, mainWs, st });
+
+    // uBlock Origin must stay loaded and keep blocking long after start, not only in the first seconds.
+    const later = 45000 - (Date.now() - readyAt);
+    if (later > 0) await wait(later);
+    const stillLoaded = mainWs && await val(mainWs, `process.mainModule.require('electron').session.fromPartition('persist:main').extensions.getAllExtensions().some((x) => x.name === 'uBlock Origin')`);
+    await val(uiWs, `browserApi.send('navigate', ${JSON.stringify(base + '/later')}); 1`);
+    const pageLater = await findTarget(/127\.0\.0\.1:\d+\/later/, 20000);
+    const blockedLater = pageLater && await until(async () => (await val(pageLater, `fetch('https://www.google-analytics.com/collect', { mode: 'no-cors', cache: 'no-store' }).then(() => 'reached', () => 'blocked')`)) === 'blocked', 10000);
+    report(!!stillLoaded && !!blockedLater, 'uBlock Origin still loaded and blocking 45 s after start', `loaded ${!!stillLoaded}, tracker ${blockedLater ? 'blocked' : 'reached'}`);
 
     // Clean exit. On macOS through the red window button's path: closing the last window quits the app.
     if (mainWs) {

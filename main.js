@@ -527,13 +527,20 @@ async function startUBlock() {
   if (process.env.MONDIUM_NO_UBO || settings.adblockEngine === 'hafif' || !fs.existsSync(path.join(UBO_DIR, 'manifest.json'))) return false;
   await eceReady;   // the extension library must be set up first for the toolbar icon
   try { mainSes.registerPreloadScript({ id: 'mondium-mv2-bridge', type: 'frame', filePath: path.join(__dirname, 'mv2-bridge.js') }); } catch {}
-  const loading = extApi().loadExtension(UBO_DIR, { allowFileAccess: false });
+  let loaded = false;
+  const loading = extApi().loadExtension(UBO_DIR, { allowFileAccess: false }).then((x) => { loaded = true; return x; });
   // An AppImage reads every file through a compressed mount, which is much slower on first use.
   const limit = process.env.APPIMAGE ? 120000 : 20000;
-  const e = await Promise.race([loading, timeout(limit).then(() => {
-    loading.then((late) => extApi().removeExtension(late.id)).catch(() => {});   // the fallback engine takes over: don't run two blockers
-    throw new Error(`uBO failed to load (${limit / 1000} s)`);
-  })]);
+  let timer;
+  const tooSlow = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      // The race fires its timer even after a successful load: only a load that is really late may be undone.
+      if (loaded) return;
+      loading.then((late) => extApi().removeExtension(late.id)).catch(() => {});   // the fallback engine takes over: don't run two blockers
+      reject(new Error(`uBO failed to load (${limit / 1000} s)`));
+    }, limit);
+  });
+  const e = await Promise.race([loading, tooSlow]).finally(() => clearTimeout(timer));
   uboId = e.id;
   // Pages wait until uBO has loaded its filters from cache and is ready (so first requests don't slip through). At most 10 s.
   const t0 = Date.now();
