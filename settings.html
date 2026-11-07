@@ -218,7 +218,7 @@ function render() {
   clockSize.disabled = d.newtabClock === 'off';
   clockSize.onchange = () => set('newtabClockSize', Number(clockSize.value));
   look.append(...[
-    select('language', [['auto', 'Otomatik (sistem dili)'], ['tr', 'Türkçe'], ['en', 'English']], 'Dil / Language', 'Arayüz dili. "Otomatik" Windows dilini kullanır.'),
+    select('language', [['auto', 'Otomatik (sistem dili)'], ['tr', 'Türkçe'], ['en', 'English']], 'Dil / Language', 'Arayüz dili. "Otomatik" sistem dilini kullanır.'),
     select('newtabClock', [['top', 'Logonun üstü'], ['tl', 'Sol üst'], ['tr', 'Sağ üst'], ['bl', 'Sol alt'], ['br', 'Sağ alt'], ['off', 'Kapalı']], 'Yeni sekme saati', 'Yeni sekmedeki saatin yeri. Sayfadaki Özelleştir düğmesinden de değiştirebilirsiniz.'),
     row('Saatin boyutu', '', clockSize),
     select('newtabClockFont', [['system', 'Sistem'], ['bahnschrift', 'Bahnschrift'], ['georgia', 'Georgia'], ['times', 'Times New Roman'], ['trebuchet', 'Trebuchet MS'], ['verdana', 'Verdana'], ['consolas', 'Consolas'], ['courier', 'Courier New'], ['script', 'Segoe Script'], ['impact', 'Impact']], 'Saatin yazı tipi', ''),

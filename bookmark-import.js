@@ -8,24 +8,60 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const LOCAL = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-const ROAMING = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-
-// Browsers with a user data folder (containing Local State + profile folders)
-const CHROMIUM_FAMILY = [
-  { key: 'chrome', name: 'Google Chrome', dir: path.join(LOCAL, 'Google', 'Chrome', 'User Data') },
-  { key: 'edge', name: 'Microsoft Edge', dir: path.join(LOCAL, 'Microsoft', 'Edge', 'User Data') },
-  { key: 'brave', name: 'Brave', dir: path.join(LOCAL, 'BraveSoftware', 'Brave-Browser', 'User Data') },
-  { key: 'vivaldi', name: 'Vivaldi', dir: path.join(LOCAL, 'Vivaldi', 'User Data') },
-  { key: 'yandex', name: 'Yandex Browser', dir: path.join(LOCAL, 'Yandex', 'YandexBrowser', 'User Data') },
-  { key: 'chromium', name: 'Chromium', dir: path.join(LOCAL, 'Chromium', 'User Data') },
-  { key: 'thorium', name: 'Thorium', dir: path.join(LOCAL, 'Thorium', 'User Data') }
-];
-// Opera: the profile is this folder itself (newer versions may also have a "Default" subfolder)
-const OPERA_FAMILY = [
-  { key: 'opera', name: 'Opera', dir: path.join(ROAMING, 'Opera Software', 'Opera Stable') },
-  { key: 'operagx', name: 'Opera GX', dir: path.join(ROAMING, 'Opera Software', 'Opera GX Stable') }
-];
+// Where each browser keeps its data on this operating system. Paths come from the browsers' own default locations.
+function browserLocations(platform = process.platform, home = os.homedir(), env = process.env) {
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const family = (dirs) => [
+    ['chrome', 'Google Chrome'], ['edge', 'Microsoft Edge'], ['brave', 'Brave'], ['vivaldi', 'Vivaldi'],
+    ['yandex', 'Yandex Browser'], ['chromium', 'Chromium'], ['thorium', 'Thorium']
+  ].flatMap(([key, name]) => (dirs[key] || []).map((dir, i) => ({ key: i ? `${key}${i + 1}` : key, name, dir })));
+  if (platform === 'darwin') {
+    const base = p.join(home, 'Library', 'Application Support');
+    return {
+      chromium: family({
+        chrome: [p.join(base, 'Google', 'Chrome')], edge: [p.join(base, 'Microsoft Edge')], brave: [p.join(base, 'BraveSoftware', 'Brave-Browser')],
+        vivaldi: [p.join(base, 'Vivaldi')], yandex: [p.join(base, 'Yandex', 'YandexBrowser')], chromium: [p.join(base, 'Chromium')], thorium: [p.join(base, 'Thorium')]
+      }),
+      opera: [{ key: 'opera', name: 'Opera', dir: p.join(base, 'com.operasoftware.Opera') }, { key: 'operagx', name: 'Opera GX', dir: p.join(base, 'com.operasoftware.OperaGX') }],
+      firefox: [p.join(base, 'Firefox', 'Profiles')]
+    };
+  }
+  if (platform === 'win32') {
+    const local = env.LOCALAPPDATA || p.join(home, 'AppData', 'Local');
+    const roaming = env.APPDATA || p.join(home, 'AppData', 'Roaming');
+    return {
+      // Browsers with a user data folder (containing Local State + profile folders)
+      chromium: family({
+        chrome: [p.join(local, 'Google', 'Chrome', 'User Data')], edge: [p.join(local, 'Microsoft', 'Edge', 'User Data')], brave: [p.join(local, 'BraveSoftware', 'Brave-Browser', 'User Data')],
+        vivaldi: [p.join(local, 'Vivaldi', 'User Data')], yandex: [p.join(local, 'Yandex', 'YandexBrowser', 'User Data')], chromium: [p.join(local, 'Chromium', 'User Data')], thorium: [p.join(local, 'Thorium', 'User Data')]
+      }),
+      // Opera: the profile is this folder itself (newer versions may also have a "Default" subfolder)
+      opera: [{ key: 'opera', name: 'Opera', dir: p.join(roaming, 'Opera Software', 'Opera Stable') }, { key: 'operagx', name: 'Opera GX', dir: p.join(roaming, 'Opera Software', 'Opera GX Stable') }],
+      firefox: [p.join(roaming, 'Mozilla', 'Firefox', 'Profiles')]
+    };
+  }
+  // Linux and other Unix systems, including Snap and Flatpak installs
+  const config = env.XDG_CONFIG_HOME || p.join(home, '.config');
+  const flatpak = (id, ...rest) => p.join(home, '.var', 'app', id, ...rest);
+  return {
+    chromium: family({
+      chrome: [p.join(config, 'google-chrome'), flatpak('com.google.Chrome', 'config', 'google-chrome')],
+      edge: [p.join(config, 'microsoft-edge'), flatpak('com.microsoft.Edge', 'config', 'microsoft-edge')],
+      brave: [p.join(config, 'BraveSoftware', 'Brave-Browser'), flatpak('com.brave.Browser', 'config', 'BraveSoftware', 'Brave-Browser')],
+      vivaldi: [p.join(config, 'vivaldi')], yandex: [p.join(config, 'yandex-browser')],
+      chromium: [p.join(config, 'chromium'), p.join(home, 'snap', 'chromium', 'common', 'chromium'), flatpak('org.chromium.Chromium', 'config', 'chromium')],
+      thorium: [p.join(config, 'thorium')]
+    }),
+    opera: [{ key: 'opera', name: 'Opera', dir: p.join(config, 'opera') }],
+    firefox: [
+      p.join(home, '.mozilla', 'firefox'), p.join(config, 'mozilla', 'firefox'),
+      p.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'), flatpak('org.mozilla.firefox', '.mozilla', 'firefox')
+    ]
+  };
+}
+const LOCATIONS = browserLocations();
+const CHROMIUM_FAMILY = LOCATIONS.chromium;
+const OPERA_FAMILY = LOCATIONS.opera;
 
 const okUrl = (u) => typeof u === 'string' && /^https?:\/\//i.test(u) && u.length < 4096;
 const clean = (s, max = 200) => String(s || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
@@ -73,13 +109,13 @@ function operaProfiles(b) {
 // ---------------------------------------------------------------- Firefox places.sqlite
 function firefoxProfiles() {
   const out = [];
-  const root = path.join(ROAMING, 'Mozilla', 'Firefox');
-  const profilesDir = path.join(root, 'Profiles');
-  let dirs = [];
-  try { dirs = fs.readdirSync(profilesDir); } catch { return out; }
-  for (const d of dirs) {
-    const file = path.join(profilesDir, d, 'places.sqlite');
-    if (fs.existsSync(file)) out.push({ id: `firefox:${d}`, browser: 'Mozilla Firefox', profile: d.replace(/^[a-z0-9]+\./i, ''), kind: 'firefox', file });
+  for (const profilesDir of LOCATIONS.firefox) {
+    let dirs = [];
+    try { dirs = fs.readdirSync(profilesDir); } catch { continue; }
+    for (const d of dirs) {
+      const file = path.join(profilesDir, d, 'places.sqlite');
+      if (fs.existsSync(file)) out.push({ id: `firefox:${d}`, browser: 'Mozilla Firefox', profile: d.replace(/^[a-z0-9]+\./i, ''), kind: 'firefox', file });
+    }
   }
   return out;
 }
@@ -192,4 +228,4 @@ function readHtmlFile(file) {
   } catch { return null; }
 }
 
-module.exports = { listSources, readSourceById, readHtmlFile, parseBookmarksHtml, readChromiumBookmarks, readFirefoxBookmarks };
+module.exports = { browserLocations, listSources, readSourceById, readHtmlFile, parseBookmarksHtml, readChromiumBookmarks, readFirefoxBookmarks };

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+smoke-shots/
 out/
 *.log
 .DS_Store

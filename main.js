@@ -89,7 +89,7 @@ const DEFAULTS = {
   verticalTabs: false,       // vertical tabs (sidebar on the left)
   verticalWidth: 240,        // vertical sidebar width (px); at its narrowest only icons
   verticalAutoHide: false,
-  language: 'auto',         // UI language: 'auto' (Windows language) | 'tr' | 'en'
+  language: 'auto',         // UI language: 'auto' (system language) | 'tr' | 'en'
   sideEdge: 2,               // TEMPORARY test setting: width (px) of the left edge that opens the sidebar in auto-hide mode
   pitchBlack: false,         // pure black in dark theme
   protectedSites: [],        // Protected Sites: cookies and site data not cleared on cleanup (registrable domain)
@@ -97,7 +97,7 @@ const DEFAULTS = {
   adblockEngine: 'ubo',      // 'ubo' = built-in uBlock Origin (strongest, ~250 MB more RAM), 'hafif' = Mondium engine
   restoreSession: true,      // previous tabs come back (asleep) on startup
   sleepMinutes: 10,          // background tabs are put to sleep after this many minutes
-  downloadNotify: true       // Windows notification when a download finishes
+  downloadNotify: true       // system notification when a download finishes
 };
 const SLEEP_CHOICES = [5, 10, 30, 60];
 let settings = { ...DEFAULTS };
@@ -244,7 +244,7 @@ function sessionData() {
 const saveSession = (now = false) => writeList(SESSION_FILE, sessionData, now);
 
 // ------------------------------------------- UI language (i18n.js). Turkish source; English comes from the dictionary.
-// 'auto': Turkish if the Windows language is Turkish, otherwise English. Chromium's own language (Accept-Language sent
+// 'auto': Turkish if the system language is Turkish, otherwise English. Chromium's own language (Accept-Language sent
 // to sites, built-in PDF viewer) is set at startup from the chosen language; UI changes apply immediately.
 let uiLangCache = null;
 function uiLang() {
@@ -1073,7 +1073,7 @@ function setupDevices(ses) {
           message: details.pairingKind === 'confirmPin' ? `Cihazda şu PIN görünüyor mu? ${details.pin}` : 'Bluetooth cihazı eşleştirilsin mi?'
         }).then((r) => callback({ confirmed: r.response === 0 })).catch(() => callback({ confirmed: false }));
       } else {
-        dialog.showMessageBox(win, { type: 'warning', message: 'Bu cihaz PIN girişi istiyor. Önce Windows Bluetooth ayarlarından eşleştirin.' });
+        dialog.showMessageBox(win, { type: 'warning', message: 'Bu cihaz PIN girişi istiyor. Önce sistemin Bluetooth ayarlarından eşleştirin.' });
         callback({ confirmed: false });
       }
     });
@@ -1917,10 +1917,35 @@ ipcMain.on('ui', (e, cmd, arg) => {
 });
 
 // ---------------------------------------------------------------- Shortcuts
+// Chrome's Mac-only shortcuts, on top of the shared list where Cmd takes the place of Ctrl.
+function macShortcut(input, k) {
+  if (!input.meta) return false;
+  const stepTab = (d) => {
+    const i = tabs.findIndex((t) => t.id === activeId), n = tabs.length;
+    if (n > 1) activateTab(tabs[(i + d + n) % n].id);
+    return true;
+  };
+  if (input.control && k === 'f') { win.setFullScreen(!win.isFullScreen()); return true; }
+  if (input.alt && k === 'arrowright') return stepTab(1);
+  if (input.alt && k === 'arrowleft') return stepTab(-1);
+  if (input.shift && (k === ']' || k === '}')) return stepTab(1);
+  if (input.shift && (k === '[' || k === '{')) return stepTab(-1);
+  if (input.alt && k === 'i') { withActive((wc) => wc.toggleDevTools()); return true; }
+  if (input.shift || input.alt || input.control) return false;
+  if (k === '[') { goBack(); return true; }
+  if (k === ']') { goForward(); return true; }
+  if (k === 'y') { openPage(HISTORY_URL); return true; }
+  if (k === ',') { openPage(SETTINGS_URL); return true; }
+  return false;
+}
+
 function handleShortcut(input) {
   if (input.type && input.type !== 'keyDown') return false;
   const ctrl = isMac ? input.meta : input.control;
   const k = (input.key || '').toLowerCase();
+  if (isMac && macShortcut(input, k)) return true;
+  // macOS keeps Cmd+H (hide) and Cmd+M (minimize) for the system.
+  if (isMac && input.meta && !input.shift && !input.alt && !input.control && (k === 'h' || k === 'm')) return false;
   if (k === 'escape' && htmlFullscreen) { withActive((wc) => wc.executeJavaScript('document.exitFullscreen && document.exitFullscreen()').catch(() => {})); return true; }
   if (k === 'escape' && overlayOpen) { closeOverlay(); return true; }
   if (k === 'escape' && findOpen) { closeFind(); return true; }
@@ -1957,7 +1982,7 @@ function handleShortcut(input) {
   if ((ctrl && k === 'r') || k === 'f5') { withActive((wc) => (input.shift || ctrl && k === 'f5' ? wc.reloadIgnoringCache() : wc.reload())); return true; }
   if (input.alt && k === 'home') { goHome(); return true; }
   if (k === 'f11') { win.setFullScreen(!win.isFullScreen()); return true; }
-  if (ctrl && k === 'tab') {
+  if ((ctrl || (isMac && input.control)) && k === 'tab') {   // Cmd+Tab belongs to macOS, Ctrl+Tab switches tabs there
     const i = tabs.findIndex((t) => t.id === activeId), n = tabs.length;
     if (n > 1) activateTab(tabs[(i + (input.shift ? n - 1 : 1)) % n].id);
     if (vertical() && settings.verticalAutoHide) { openSide(); W.sideHoldUntil = Date.now() + 1200; }
@@ -3276,7 +3301,7 @@ function createWindow(opts = {}) {
     useWin(w);
     const ctrl = isMac ? input.meta : input.control;
     const k = (input.key || '').toLowerCase();
-    if (ctrl && !input.shift && ['c', 'v', 'x', 'a', 'z', 'y'].includes(k)) return;
+    if (ctrl && !input.shift && (['c', 'v', 'x', 'a', 'z'].includes(k) || (!isMac && k === 'y'))) return;
     if (handleShortcut(input)) e.preventDefault();
   });
   uw.on('did-finish-load', () => { useWin(w); pushState(); });
@@ -3346,7 +3371,20 @@ app.on('second-instance', (_e, argv) => {
   const url = urlFromArgs(argv.slice(1));
   if (url) newTab(url);
 });
-// URL or file passed from Windows (default browser / "Open with"): an http(s) URL or an existing .html/.pdf/.svg/.webp file
+// macOS delivers links and files as events, not as command-line arguments. They can arrive before the first window exists.
+let startupOpens = [];
+function openFromSystem(url) {
+  if (!url) return;
+  if (startupOpens) { startupOpens.push(url); return; }
+  useWin(lastWin(true) || lastWin());
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  newTab(url);
+}
+app.on('open-url', (e, url) => { e.preventDefault(); if (/^https?:\/\//i.test(url)) openFromSystem(url); });
+app.on('open-file', (e, file) => { e.preventDefault(); openFromSystem(urlFromArgs([file])); });
+// URL or file passed by the operating system (default browser / "Open with"): an http(s) URL or an existing .html/.pdf/.svg/.webp file
 function urlFromArgs(args) {
   for (const a of args) {
     if (typeof a !== 'string' || a.startsWith('-')) continue;
@@ -3366,7 +3404,7 @@ app.whenReady().then(async () => {
   } else {
     console.warn('This Electron build has no Widevine: DRM videos (Netflix, Exxen...) will not play. Install the castLabs build with "npm install".');
   }
-  Menu.setApplicationMenu(isMac ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }]) : null);
+  Menu.setApplicationMenu(isMac ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null);
 
   // Thorium: DNS-over-HTTPS (encrypted DNS queries; falls back to normal automatically on networks that don't support it)
   try {
@@ -3387,11 +3425,12 @@ app.whenReady().then(async () => {
   createWindow();
   startBlocking();
   setupExtensions();
-  const startUrl = urlFromArgs(process.argv.slice(1));
+  const opens = [urlFromArgs(process.argv.slice(1)), ...startupOpens].filter(Boolean);
+  startupOpens = null;
   const restored = settings.firstRunDone && restoreSession();
   useWin(windows[0]);
-  if (startUrl) newTab(startUrl);
-  else if (!restored) newTab(settings.firstRunDone ? '' : WELCOME_URL);
+  for (const url of opens) newTab(url);
+  if (!opens.length && !restored) newTab(settings.firstRunDone ? '' : WELCOME_URL);
   setInterval(sleepIdleTabs, 60e3);
   setInterval(keepSessionCookies, 15 * 60e3);
 });

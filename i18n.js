@@ -46,7 +46,7 @@
     'Eşleştir': 'Pair',
     'İptal': 'Cancel',
     'Bluetooth cihazı eşleştirilsin mi?': 'Pair the Bluetooth device?',
-    'Bu cihaz PIN girişi istiyor. Önce Windows Bluetooth ayarlarından eşleştirin.': 'This device asks for a PIN. Pair it in Windows Bluetooth settings first.',
+    'Bu cihaz PIN girişi istiyor. Önce sistemin Bluetooth ayarlarından eşleştirin.': 'This device asks for a PIN. Pair it in your system Bluetooth settings first.',
     'bir seri bağlantı noktasına bağlanmak istiyor': 'wants to connect to a serial port',
     'bir HID cihazına bağlanmak istiyor': 'wants to connect to a HID device',
     'bir USB cihazına bağlanmak istiyor': 'wants to connect to a USB device',
@@ -343,7 +343,7 @@
     'Kapalıyken sekmelerde hoparlör simgesi görünmez ve sekmeyi sessize alma tamamen devre dışı kalır.': 'When off, tabs show no speaker icon and muting tabs is turned off completely.',
     'Dil': 'Language',
     'Dil / Language': 'Language / Dil',
-    'Arayüz dili. "Otomatik" Windows dilini kullanır.': 'Interface language. "Automatic" follows the Windows language.',
+    'Arayüz dili. "Otomatik" sistem dilini kullanır.': 'Interface language. "Automatic" follows the system language.',
     'Otomatik (sistem dili)': 'Automatic (system language)',
     '5 dakika': '5 minutes',
     '10 dakika': '10 minutes',
@@ -751,12 +751,15 @@
   // ---- DOM: translate text nodes and attributes as they appear (pages and browser UI)
   const ATTRS = ['placeholder', 'title', 'aria-label'];
   function startDom(lang) {
-    if (lang !== 'en' || typeof document === 'undefined') return;
-    document.documentElement.lang = 'en';
-    const doText = (n) => { const v = n.nodeValue; if (!v || v.length > 2000) return; const t = translate(v, 'en'); if (t !== v) n.nodeValue = t; };
+    // Macs also need this in Turkish: shortcut labels are written as Ctrl+ in the source text.
+    const mac = ((root.pageApi && root.pageApi.platform) || (root.browserApi && root.browserApi.platform)) === 'darwin';
+    if ((lang !== 'en' && !mac) || typeof document === 'undefined') return;
+    if (lang === 'en') document.documentElement.lang = 'en';
+    const show = (v) => { const t = translate(v, lang); return mac ? t.replace(/\bCtrl\+/g, '⌘') : t; };
+    const doText = (n) => { const v = n.nodeValue; if (!v || v.length > 2000) return; const t = show(v); if (t !== v) n.nodeValue = t; };
     const doEl = (el) => {
-      for (const a of ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v) { const t = translate(v, 'en'); if (t !== v) el.setAttribute(a, t); } }
-      if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') && el.value) { const t = translate(el.value, 'en'); if (t !== el.value) el.value = t; }
+      for (const a of ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v) { const t = show(v); if (t !== v) el.setAttribute(a, t); } }
+      if (el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') && el.value) { const t = show(el.value); if (t !== el.value) el.value = t; }
     };
     const walk = (root) => {
       if (root.nodeType === 3) { doText(root); return; }
@@ -784,7 +787,7 @@
     mo.observe(document, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
     if (document.documentElement) walk(document.documentElement);
     // Native dialogs opened by page scripts
-    for (const k of ['confirm', 'alert', 'prompt']) {
+    if (lang === 'en') for (const k of ['confirm', 'alert', 'prompt']) {
       const orig = window[k];
       if (typeof orig === 'function') window[k] = function (msg, ...rest) { return orig.call(window, translate(String(msg == null ? '' : msg), 'en'), ...rest); };
     }

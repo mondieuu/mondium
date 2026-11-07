@@ -14,6 +14,7 @@ function inMainWorld(fn) {
 if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions|taskmanager|securitywarning)\.html$/.test(location.pathname)) {
   contextBridge.exposeInMainWorld('pageApi', {
     lang: ipcRenderer.sendSync('mondium-lang'),   // UI language: 'tr' | 'en' (see i18n.js)
+    platform: process.platform,
     get: () => ipcRenderer.invoke('page', 'get'),
     call: (cmd, arg) => ipcRenderer.invoke('page', cmd, arg),
     onUpdate: (fn) => { ipcRenderer.removeAllListeners('page-update'); ipcRenderer.on('page-update', (_e, d) => fn(d)); }
