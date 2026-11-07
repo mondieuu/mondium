@@ -26,8 +26,9 @@
 
   /* ---------- Tab strip ---------- */
   #strip { height:42px; background:var(--frame); display:flex; align-items:flex-end; padding:0 8px; -webkit-app-region:drag; }
-  body.mac #strip { padding-left:80px; }
-  body.vert.mac #toolbar { padding-left:80px; }
+  /* Room for the macOS window buttons, which hide in fullscreen */
+  body.mac:not(.fs) #strip { padding-left:80px; }
+  body.vert.mac:not(.fs) #toolbar { padding-left:80px; }
   body.overlay #strip { padding-right:146px; }
   #tabs { display:flex; align-items:flex-end; min-width:0; flex:0 1 auto; height:100%; }
   .tab { position:relative; flex:0 1 auto; width:240px; min-width:44px; height:34px; display:flex; align-items:center;
@@ -817,6 +818,7 @@ function renderSide(s) {
   const vert = !!s.vertical;
   const body = document.body;
   body.classList.toggle('vert', vert);
+  body.classList.toggle('fs', !!s.fullscreen);
   body.classList.toggle('autohide', vert && !!s.autoHide);
   if (!sizing) body.classList.toggle('reveal', !!s.sideOpen);
   // Tab list and the "Incognito" badge move depending on the layout

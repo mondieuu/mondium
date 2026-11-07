@@ -69,6 +69,66 @@ const server = http.createServer((req, res) => {
   res.end(req.url === '/headers' ? JSON.stringify(req.headers) : '<!doctype html><title>Smoke</title><h1>Smoke page</h1>');
 });
 
+// macOS: nothing clickable may sit under the red, yellow and green buttons, whatever the tab layout, and the buttons must work.
+async function macWindowButtons({ uiWs, mainWs, st }) {
+  const M = (code) => val(mainWs, `(async () => { const E = process.mainModule.require('electron'); const w = E.BaseWindow.getAllWindows().find((x) => !/Gizli/.test(x.getTitle())); ${code} })()`);
+  const put = (key, value) => val(st, `pageApi.call('settings-set', ${JSON.stringify({ key, value })}).then(() => 1)`);
+  const hits = (x2, y2) => `JSON.stringify([...document.querySelectorAll('button, input, a, .tab, #incog, [role=button]')].filter((el) => {
+    const r = el.getBoundingClientRect(), c = getComputedStyle(el);
+    return r.width && r.height && c.visibility !== 'hidden' && r.left < ${x2} && r.right > 0 && r.top < ${y2} && r.bottom > 0;
+  }).map((el) => el.id || el.className || el.tagName))`;
+  const uis = async () => Promise.all((await targets()).filter((x) => /ui\.html/.test(x.url)).map((x) => open(x.webSocketDebuggerUrl)));
+  const check = async (name) => {
+    await wait(1200);
+    const pos = await M('return w.getWindowButtonPosition()');
+    // Three buttons: 54 to 60 px wide depending on the macOS version, about 16 px tall
+    const x2 = pos.x + 60, y2 = pos.y + 16;
+    const found = [];
+    for (const ws of await uis()) { found.push(...JSON.parse(await val(ws, hits(x2, y2)))); ws.close(); }
+    report(!found.length, `window buttons clear: ${name}`, found.length ? 'covers ' + found.join(', ') : `buttons at ${pos.x},${pos.y}`);
+    desktopShot(`mac-${name}.png`);
+  };
+  await check('horizontal-tabs');
+  await val(uiWs, `browserApi.send('menu-action', { id: 'new-incognito' }); 1`);
+  await until(async () => (await targets()).filter((x) => /ui\.html/.test(x.url)).length === 2, 8000);
+  await check('horizontal-tabs-incognito');
+  await put('verticalTabs', true);
+  await check('vertical-tabs-incognito');
+  await M(`E.BaseWindow.getAllWindows().filter((x) => /Gizli/.test(x.getTitle())).forEach((x) => x.close()); return 1`);
+  await check('vertical-tabs');
+  await put('verticalAutoHide', true);
+  await check('vertical-tabs-autohide');
+  await put('verticalAutoHide', false);
+  await put('verticalTabs', false);
+  await wait(800);
+
+  // Green button: fullscreen keeps the tabs and drops the gap left for the buttons
+  await M('w.setFullScreen(true); return 1');
+  if (await until(() => M('return w.isFullScreen()'), 10000)) {
+    await wait(1500);
+    const gap = await val(uiWs, `getComputedStyle(document.getElementById('strip')).paddingLeft`);
+    const seen = await val(uiWs, `document.visibilityState === 'visible' && document.getElementById('strip').getBoundingClientRect().height > 0`);
+    report(seen && gap === '8px', 'green button: fullscreen keeps tabs and toolbar', `tab strip gap ${gap}`);
+    desktopShot('mac-fullscreen.png');
+    await M('w.setFullScreen(false); return 1');
+    await until(async () => !(await M('return w.isFullScreen()')), 10000);
+    await wait(1500);
+    report(await val(uiWs, `getComputedStyle(document.getElementById('strip')).paddingLeft`) === '80px', 'green button: leaving fullscreen restores the gap');
+  } else info('fullscreen', 'this machine did not enter fullscreen');
+
+  // Yellow button, and zoom
+  await M('w.minimize(); return 1');
+  const small = await until(() => M('return w.isMinimized()'), 8000);
+  await M('w.restore(); return 1');
+  const back = await until(async () => !(await M('return w.isMinimized()')), 8000);
+  report(!!small && !!back, 'yellow button: minimize and restore');
+  await M('w.maximize(); return 1');
+  await wait(1200);
+  await check('zoomed');
+  await M('w.unmaximize(); return 1');
+  await wait(800);
+}
+
 async function main() {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -144,9 +204,12 @@ async function main() {
     if (st) await shot(st, 'settings.png');
     desktopShot('desktop-settings.png');
 
-    // Clean exit
+    if (process.platform === 'darwin' && st && mainWs) await macWindowButtons({ uiWs, mainWs, st });
+
+    // Clean exit. On macOS through the red window button's path: closing the last window quits the app.
     if (mainWs) {
-      await val(mainWs, `setTimeout(() => process.mainModule.require('electron').app.quit(), 300); 1`).catch(() => {});
+      const leave = process.platform === 'darwin' ? 'E.BaseWindow.getAllWindows().forEach((w) => w.close())' : 'E.app.quit()';
+      await val(mainWs, `setTimeout(() => { const E = process.mainModule.require('electron'); ${leave}; }, 300); 1`).catch(() => {});
       mainWs.close();   // the process waits at exit while an inspector stays attached
     }
     const clean = await until(() => exited, 20000);

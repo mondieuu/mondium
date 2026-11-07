@@ -1215,8 +1215,9 @@ function createView(tab) {
   on('before-input-event', (e, input) => { if (handleShortcut(input)) e.preventDefault(); });
   on('context-menu', (_e, p) => showContextMenu(wc, p));
   on('found-in-page', (_e, r) => send('found', { active: r.activeMatchOrdinal, total: r.matches }));
-  on('enter-html-full-screen', () => { htmlFullscreen = true; win.setFullScreen(true); layout(); });
-  on('leave-html-full-screen', () => { htmlFullscreen = false; win.setFullScreen(false); layout(); });
+  // A video's fullscreen ends where it began: a window the user made fullscreen stays fullscreen.
+  on('enter-html-full-screen', () => { W.fullBeforeVideo = win.isFullScreen(); htmlFullscreen = true; win.setFullScreen(true); layout(); });
+  on('leave-html-full-screen', () => { htmlFullscreen = false; win.setFullScreen(!!W.fullBeforeVideo); layout(); });
   const wcId = wc.id;
   on('destroyed', () => { if (byWcId.get(wcId) === tab) byWcId.delete(wcId); blockedNavigations.delete(wcId); });
   return view;
@@ -1625,8 +1626,9 @@ function toggleBookmarksBar() { settings.bookmarksBar = !settings.bookmarksBar; 
 const vertical = () => !!settings.verticalTabs && !htmlFullscreen;
 function layout() {
   if (!win || !ui) return;
-  // Full-page F11 and HTML fullscreen: the page takes the whole window, the browser UI is hidden
-  const fullscreen = htmlFullscreen || win.isFullScreen();
+  // Full-page F11 and HTML fullscreen: the page takes the whole window, the browser UI is hidden.
+  // On macOS the green window button also enters fullscreen and the tabs must stay there, as in other Mac browsers.
+  const fullscreen = htmlFullscreen || (!isMac && win.isFullScreen());
   ui.setVisible(!fullscreen);
   if (fullscreen) {
     const { width, height } = win.getContentBounds();
@@ -2844,8 +2846,11 @@ function applyTheme() {
   broadcastPages();
 }
 // Color of the window frame and Windows caption buttons
+// Mac window buttons: level with the tab titles, or with the toolbar when tabs are vertical. The UI leaves 80 px free for them.
+const trafficLights = () => ({ x: 12, y: settings.verticalTabs ? 16 : 17 });
 function paintFrame() {
   if (!win) return;
+  if (isMac && win.setWindowButtonPosition) { try { win.setWindowButtonPosition(trafficLights()); } catch {} }
   const c = W && W.incognito ? { frame: INCOGNITO_THEME.frame, toolbar: INCOGNITO_THEME.toolbar, symbol: '#e3e3e3' } : themeColors();
   try { win.setBackgroundColor(c.frame); } catch {}
   if (!isMac && win.setTitleBarOverlay) { try { win.setTitleBarOverlay({ color: settings.verticalTabs ? c.toolbar : c.frame, symbolColor: c.symbol, height: settings.verticalTabs ? TOOLBAR : TAB_STRIP }); } catch {} }
@@ -3288,7 +3293,7 @@ function createWindow(opts = {}) {
     icon: path.join(__dirname, 'icon.png'),
     backgroundColor: c.frame, title: incognito ? 'Mondium (Gizli)' : 'Mondium',
     titleBarStyle: 'hidden',
-    ...(isMac ? { trafficLightPosition: { x: 12, y: 14 } } : { titleBarOverlay: { color: settings.verticalTabs ? c.toolbar : c.frame, symbolColor: c.symbol, height: settings.verticalTabs ? TOOLBAR : TAB_STRIP } })
+    ...(isMac ? { trafficLightPosition: trafficLights() } : { titleBarOverlay: { color: settings.verticalTabs ? c.toolbar : c.frame, symbolColor: c.symbol, height: settings.verticalTabs ? TOOLBAR : TAB_STRIP } })
   });
   if (process.platform === 'win32') win.setAppDetails({ appId: 'local.mondium.tarayici', appIconPath: app.isPackaged ? path.join(process.resourcesPath, 'mondium.ico') : path.join(__dirname, 'build', 'icon.ico'), appIconIndex: 0, relaunchDisplayName: 'Mondium', relaunchCommand: app.isPackaged ? '"' + process.execPath + '"' : '"' + process.execPath + '" "' + __dirname + '"' });
   if (win.setMenu) win.setMenu(null);
@@ -3318,6 +3323,7 @@ function createWindow(opts = {}) {
   const on = (ev, fn) => win.on(ev, (...a) => { useWin(w); return fn(...a); });
   for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) on(ev, layout);
   on('leave-full-screen', () => { if (htmlFullscreen) { htmlFullscreen = false; layout(); } });
+  if (isMac) for (const ev of ['enter-full-screen', 'leave-full-screen']) on(ev, pushState);   // the UI drops the button gap in fullscreen
   on('app-command', (_e, cmd) => {
     if (cmd === 'browser-backward') goBack();
     if (cmd === 'browser-forward') goForward();
