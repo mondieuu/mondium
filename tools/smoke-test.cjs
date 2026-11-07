@@ -84,6 +84,8 @@ async function main() {
     const uiWs = await findTarget(/ui\.html/, 90000);
     report(!!uiWs, 'window opens');
     if (!uiWs) return;
+    // The target can appear before the page's scripts have run.
+    await until(() => val(uiWs, `typeof browserApi === 'object' && typeof state === 'object'`), 30000);
     report(await val(uiWs, 'browserApi.platform') === process.platform, 'UI runs on this platform', process.platform);
     const mainList = await until(async () => (await (await fetch(`http://127.0.0.1:${INSPECT_PORT}/json/list`)).json())[0], 20000);
     const mainWs = mainList ? await open(mainList.webSocketDebuggerUrl) : null;
