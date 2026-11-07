@@ -79,7 +79,9 @@ Clear everything, except the sites you choose to keep signed in to.
 
 ### Memory
 - **Deferred background tabs.** A link opened in the background is only a title until you select it: no renderer, scripts or media.
-- **Process grouping (optional).** Full site isolation is on by default. Turn it off in Settings to let regular sites share processes while sign-in, payment and protected sites stay isolated. In our test with six popular sites this cut renderer processes from 21 to 8 and working set from 4.6 GB to 2.8 GB.
+- **Blocking saves memory too.** Ads and trackers that never load never get a process. In our test with six popular sites (Windows, full site isolation), Mondium settled at about 1.2 GB in 14 processes. With blocking broken (the 1.4.0 bug), the same sites took 2.0 GB in 39 processes.
+- **Extra memory saving (optional).** Settings → Performance makes the JavaScript engine favor memory over speed: about 5% less RAM on the same test, possibly a little slower on heavy sites.
+- **Process grouping (optional).** Full site isolation is on by default. Turning it off lets regular sites share processes while sign-in, payment and protected sites stay isolated. With ads blocked it saves little: about 50–150 MB on the same six sites.
 - **Tab sleeping.** Background tabs are unloaded after 5–60 minutes (configurable), or by hand from the tab menu or task manager. Tabs playing audio are never put to sleep automatically.
 - **Lazy session restore.** Only the active tab loads at startup.
 - **Task manager** (`Shift+Esc`) shows the memory and CPU of every tab, extension and process.
@@ -208,7 +210,7 @@ Mondium is not affiliated with Google or the Chromium project.
 
 ### Öne çıkanlar
 - **Korunan siteler:** Gezinti verilerini temizlerken seçtiğiniz sitelerde oturumunuz açık kalır. Temizlik motor üzerinden çerez ve depolama anahtarı bazında yapılır, sonuç yeniden okunarak doğrulanır.
-- **Bellek:** Tam site izolasyonu varsayılan olarak açık. Ayarlardan kapatınca normal siteler süreç paylaşır; giriş, ödeme ve korunan siteler ayrı kalır. 6 popüler sitede 21 süreç yerine 8 süreç, 4,6 GB yerine 2,8 GB çalışma belleği.
+- **Bellek:** Reklam ve izleyiciler hiç yüklenmediği için süreç de açmaz. 6 popüler sitede yaklaşık 1,2 GB ve 14 süreç. Ayarlar → Performans → **Ekstra bellek tasarrufu** yaklaşık %5 daha kazandırır, ağır sitelerde biraz yavaşlatabilir. Tam site izolasyonu varsayılan olarak açık; kapatmak artık az kazandırır (aynı testte 50–150 MB).
 - **Yerleşik araçlar:** Ses yükseltme (sekme başına %600'e kadar), resim büyütme (`Z` ile sabitle, tekerlekle yakınlaştır, `S` ile indir), okuma modu (`F9`), resim içinde resim.
 - **Yer işareti aktarma:** Chrome, Edge, Brave, Opera, Vivaldi, Yandex veya Firefox'tan tek tıkla ya da HTML dosyasından. Dosyalar sadece bu bilgisayarda okunur.
 - **Uyumluluk:** Chrome Web Mağazası uzantıları, Widevine DRM, WebHID / WebUSB / Web Serial / Web Bluetooth, yerleşik PDF görüntüleyici.

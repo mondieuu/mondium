@@ -68,6 +68,7 @@ const DEFAULTS = {
   askDownloadLocation: false, // ask where to save every download (native, non-blocking dialog)
   newTabPrompt: false,       // Ctrl+T opens a search/address box first instead of the new tab page
   overlayScrollbar: true,    // thin overlay scrollbar that takes no page width
+  memorySaver: false,        // V8 --optimize-for-size: less RAM, possibly slower heavy sites (restart)
   clearGoogleOnExit: false,  // when on, Google cookies/site data are cleared on exit (signs out of Google)
   keepLogins: true,          // keep site logins across restarts (session cookies are made persistent)
   newtabClock: 'top',        // new tab clock: 'top' (above the logo), 'tl', 'tr', 'bl', 'br' (corners) or 'off'
@@ -296,6 +297,8 @@ cl.appendSwitch('disable-features', [
   'AttributionReportingCrossAppWeb', 'DialMediaRouteProvider',
   'WebAuthenticationConditionalUI', 'WebAuthenticationPasskeysUI'   // passkey popups
 ].join(','));
+// Opt-in: V8 favors memory over speed (measured: about 6% less RAM with 6 sites). Off by default because heavy sites may be slower.
+if (settings.memorySaver) cl.appendSwitch('js-flags', '--optimize-for-size');
 // RAM: full site isolation puts every third-party iframe in its own process (measured: 6 sites, 21 processes, 4.6 GB
 // working set; off: 8 processes, 2.8 GB). Partial isolation like Android Chrome: general sites share processes, login,
 // payment and protected sites (where you sign in) still get their own. Settings > Privacy > full isolation.
@@ -2981,6 +2984,7 @@ function settingsData() {
     askDownloadLocation: settings.askDownloadLocation === true,
     newTabPrompt: settings.newTabPrompt === true,
     overlayScrollbar: settings.overlayScrollbar !== false,
+    memorySaver: settings.memorySaver === true,
     uboError: settings.adblockEngine !== 'hafif' && mainBlockSettled && !uboId,
     theme: settings.theme, themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name, mode: t.mode, frame: t.frame || null, accent: t.accent || null })),
     engine: settings.searchEngine, engines: Object.entries(SEARCH_ENGINES).map(([key, x]) => ({ key, name: x.name })),
@@ -3027,7 +3031,7 @@ function setLanguage(v) {
   }, 150);
 }
 function settingsSet(key, value) {
-  const bool = (k) => { if (typeof value !== 'boolean') return false; setSetting(k, value, k === 'forceDarkPages' || k === 'strictIsolation'); return true; };
+  const bool = (k) => { if (typeof value !== 'boolean') return false; setSetting(k, value, k === 'forceDarkPages' || k === 'strictIsolation' || k === 'memorySaver'); return true; };
   switch (key) {
     case 'theme': if (!THEMES[value]) return false; settings.theme = value; saveSettings(); applyTheme(); return true;
     case 'engine': case 'searchEngine': if (!SEARCH_ENGINES[value]) return false; setSetting('searchEngine', value); broadcastPages(); return true;
@@ -3061,7 +3065,7 @@ function settingsSet(key, value) {
     }
     case 'verticalAutoHide': if (typeof value !== 'boolean') return false; if (value !== !!settings.verticalAutoHide) { if (settings.verticalTabs) toggleAutoHide(); else { settings.verticalAutoHide = value; saveSettings(); } } return true;
     case 'adblockEngine': if (!['ubo', 'hafif'].includes(value)) return false; if (value !== settings.adblockEngine) setSetting('adblockEngine', value, true); return true;
-    case 'fullUrl': case 'forceDarkPages': case 'strictIsolation': case 'clearGoogleOnExit': case 'restoreSession': case 'downloadNotify': case 'keepLogins': return bool(key);
+    case 'fullUrl': case 'forceDarkPages': case 'strictIsolation': case 'memorySaver': case 'clearGoogleOnExit': case 'restoreSession': case 'downloadNotify': case 'keepLogins': return bool(key);
   }
   return false;
 }
