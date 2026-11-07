@@ -1744,7 +1744,7 @@ function pushState() {
     theme: W.incognito ? INCOGNITO_THEME : themeVars(),
     incognito: !!W.incognito,
     tabAudio: !!settings.tabAudio,
-    vertical: vertical(), autoHide: !!settings.verticalAutoHide, sideWidth: sideWidth(win.getContentBounds().width), sideMin: SIDE_MIN,
+    vertical: vertical(), fullscreen: win.isFullScreen(), autoHide: !!settings.verticalAutoHide, sideWidth: sideWidth(win.getContentBounds().width), sideMin: SIDE_MIN,
     sideOpen: overlayOpen && (overlayKind === 'side' || overlayKind === 'sidedrag'), sideEdge: settings.sideEdge || 2,
     ubo: !!uboId && !W.incognito,
     windows: windows.length,
