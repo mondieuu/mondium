@@ -108,8 +108,8 @@ Clear everything, except the sites you choose to keep signed in to.
 | Windows 10/11 (64-bit) | `Mondium-Setup-<version>.exe` |
 | macOS, Apple Silicon | `Mondium-<version>-mac-arm64.dmg` |
 | macOS, Intel | `Mondium-<version>-mac-x64.dmg` |
-| Debian, Ubuntu and similar (64-bit) | `Mondium-<version>-linux-x64.deb` |
-| Other Linux (64-bit) | `Mondium-<version>-linux-x64.AppImage` |
+| Debian, Ubuntu and similar (64-bit) | `Mondium-<version>-linux-amd64.deb` |
+| Other Linux (64-bit) | `Mondium-<version>-linux-x86_64.AppImage` |
 
 **Windows:** the installer works like Chrome's: one click, no admin rights, installs for the current user and opens Mondium when it's done. You can make it your default browser under **Settings → Apps → Default apps**.
 
@@ -126,7 +126,7 @@ Clear everything, except the sites you choose to keep signed in to.
 **Linux:** install the `.deb` with the command below, or make the AppImage executable and run it. Mondium is listed as a web browser, so you can choose it in your system's default applications.
 
 ```bash
-sudo apt install ./Mondium-<version>-linux-x64.deb
+sudo apt install ./Mondium-<version>-linux-amd64.deb
 ```
 
 > On Ubuntu 23.10 and newer, use the `.deb`: the system's AppArmor rules stop AppImages from starting Chromium's sandbox. Mondium doesn't turn the sandbox off to get around this.
@@ -221,8 +221,8 @@ Mondium is not affiliated with Google or the Chromium project.
 | Windows 10/11 (64 bit) | `Mondium-Setup-<sürüm>.exe` |
 | macOS, Apple Silicon | `Mondium-<sürüm>-mac-arm64.dmg` |
 | macOS, Intel | `Mondium-<sürüm>-mac-x64.dmg` |
-| Debian, Ubuntu ve benzerleri (64 bit) | `Mondium-<sürüm>-linux-x64.deb` |
-| Diğer Linux dağıtımları (64 bit) | `Mondium-<sürüm>-linux-x64.AppImage` |
+| Debian, Ubuntu ve benzerleri (64 bit) | `Mondium-<sürüm>-linux-amd64.deb` |
+| Diğer Linux dağıtımları (64 bit) | `Mondium-<sürüm>-linux-x86_64.AppImage` |
 
 **Windows:** Kurulum Chrome'unki gibi: tek tık, yönetici izni gerekmez, bitince Mondium açılır. **Ayarlar → Uygulamalar → Varsayılan uygulamalar** bölümünden varsayılan tarayıcı yapabilirsiniz.
 
@@ -239,7 +239,7 @@ Mondium is not affiliated with Google or the Chromium project.
 **Linux:** `.deb` dosyasını aşağıdaki komutla kurun ya da AppImage dosyasını çalıştırılabilir yapıp açın. Mondium web tarayıcısı olarak listelenir, sistemin varsayılan uygulamalar bölümünden seçebilirsiniz.
 
 ```bash
-sudo apt install ./Mondium-<sürüm>-linux-x64.deb
+sudo apt install ./Mondium-<sürüm>-linux-amd64.deb
 ```
 
 > Ubuntu 23.10 ve sonrasında `.deb` kullanın: sistemin AppArmor kuralları AppImage'ların Chromium korumalı alanını (sandbox) başlatmasını engelliyor. Mondium bunu aşmak için korumalı alanı kapatmaz.
