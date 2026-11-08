@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -43,8 +43,12 @@
       "tr",
       "en-US"
     ],
+    "electronFuses": {
+      "grantFileProtocolExtraPrivileges": false
+    },
     "files": [
       "main.js",
+      "extension-guard.js",
       "ui.html",
       "ui-preload.js",
       "page-preload.js",
@@ -209,6 +213,16 @@
     "afterSign": "build/vmp-win.js",
     "afterPack": "build/vmp-mac.js",
     "asarUnpack": [
+      "ui.html",
+      "newtab.html",
+      "welcome.html",
+      "history.html",
+      "downloads.html",
+      "settings.html",
+      "securitywarning.html",
+      "taskmanager.html",
+      "extensions.html",
+      "i18n.js",
       "vendor/ublock/**"
     ],
     "beforeBuild": "./build/prepare-security.js",

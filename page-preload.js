@@ -11,7 +11,8 @@ function inMainWorld(fn) {
 
 // 1) The browser's own local pages (new tab, welcome, history, downloads): shortcuts, theme, list API.
 //    This API is never created on other sites. The main process also checks the sender page on every command.
-if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions|taskmanager|securitywarning)\.html$/.test(location.pathname)) {
+//    A local file with the same name is not one of these pages, so the main process compares the full path.
+if (location.protocol === 'file:' && /\/(newtab|welcome|history|downloads|settings|extensions|taskmanager|securitywarning)\.html$/.test(location.pathname) && ipcRenderer.sendSync('mondium-is-internal-page')) {
   contextBridge.exposeInMainWorld('pageApi', {
     lang: ipcRenderer.sendSync('mondium-lang'),   // UI language: 'tr' | 'en' (see i18n.js)
     platform: process.platform,

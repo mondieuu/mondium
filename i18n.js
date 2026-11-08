@@ -32,6 +32,11 @@
     'Bilgisayarınızdaki uygulamalarla iletişim kurabilir': 'Communicate with apps on your computer',
     'Sayfalarda kendi betiklerini çalıştırabilir': 'Run its own scripts on pages',
     'Özel izin gerektirmiyor': 'Requires no special permissions',
+    'Çerezlerinizi okuyup değiştirebilir': 'Read and change your cookies',
+    'Sayfalarda kod çalıştırabilir': 'Run code on pages',
+    'Ağ isteklerinizi görebilir ve değiştirebilir': 'See and change your network requests',
+    'Gezinti verilerinizi silebilir': 'Delete your browsing data',
+    'Diğer izinler:': 'Other permissions:',
     'Şunları yapabilir:': 'It can:',
     'İzin ver': 'Allow',
     'Engelle': 'Block',
@@ -670,6 +675,8 @@
   // Strings with variable parts. {0}, {1}... in order; English may use {0:one|many} for plurals.
   const PATTERNS = [
     ['Yeni sürüm var: {0}', 'New version available: {0}'],
+    ['Bilgisayarınızdaki bir uygulamayı açmak ({0})', 'Open an app on your computer ({0})'],
+    ['Diğer izinler: {0}', 'Other permissions: {0}'],
     ['{0} şunu istiyor:', '{0} wants to:'],
     ['Cihazda şu PIN görünüyor mu? {0}', 'Does the device show this PIN? {0}'],
     ['Sekme: {0} - uyutuldu (0 MB)', 'Tab: {0} - asleep (0 MB)'],

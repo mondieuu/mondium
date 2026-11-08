@@ -10,14 +10,14 @@ const { spawn } = require('child_process');
 require('./prepare-security');
 const root = path.join(__dirname, '..');
 const electronExe = require('electron');            // path to node_modules/electron/dist/electron.exe
-let exe = electronExe;
+let exe = electronExe, needsFuses = false, stamp = '';
 
 if (process.platform === 'win32') {
   const dir = path.dirname(electronExe);
   const target = path.join(dir, 'Mondium.exe');
   const stampFile = target + '.surum';
   const icon = path.join(root, 'build', 'icon.ico');
-  const stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs].join('|');
+  stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs, 'fuses1'].join('|');
   try {
     if (!fs.existsSync(target) || !fs.existsSync(stampFile) || fs.readFileSync(stampFile, 'utf8') !== stamp) {
       console.log('Preparing Mondium.exe (one time)...');
@@ -40,7 +40,7 @@ if (process.platform === 'win32') {
       }
       res.outputResource(pe);
       fs.writeFileSync(target, Buffer.from(pe.generate()));
-      fs.writeFileSync(stampFile, stamp);
+      needsFuses = true;
     }
     exe = target;
   } catch (e) {
@@ -48,8 +48,18 @@ if (process.platform === 'win32') {
   }
 }
 
-const env = { ...process.env };
-delete env.ELECTRON_RUN_AS_NODE;
-const child = spawn(exe, [root, ...process.argv.slice(2)], { stdio: 'inherit', env, windowsHide: false });
-child.on('close', (code) => process.exit(code || 0));
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!child.killed) child.kill(sig); });
+function start() {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const child = spawn(exe, [root, ...process.argv.slice(2)], { stdio: 'inherit', env, windowsHide: false });
+  child.on('close', (code) => process.exit(code || 0));
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!child.killed) child.kill(sig); });
+}
+
+// Same fuse as the installer build (package.json build.electronFuses), so development matches what users get.
+if (needsFuses) {
+  const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses');
+  flipFuses(exe, { version: FuseVersion.V1, [FuseV1Options.GrantFileProtocolExtraPrivileges]: false })
+    .then(() => { fs.writeFileSync(exe + '.surum', stamp); start(); })
+    .catch((e) => { console.error('Could not set the Electron fuses:', e.message); process.exit(1); });
+} else start();

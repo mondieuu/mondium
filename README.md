@@ -179,6 +179,7 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 | `site-data.js` | Protected sites: site rules, engine inventory, selective cleanup |
 | `settings.html`, `newtab.html`, `history.html`, `downloads.html`, `extensions.html`, `taskmanager.html`, `securitywarning.html` | Internal pages |
 | `secure-crx.js`, `bounded-fetch.js`, `threat-protection.js`, `private-ubo.js` | Extension package verification, size-limited downloads, malicious-site list, Incognito network filter |
+| `extension-guard.js` | Identity and permission checks on extension API calls |
 | `updater.js` | Update check and install from GitHub releases, per operating system |
 | `volume.js`, `hoverzoom.js`, `reader.js` | Built-in tools injected into isolated worlds |
 | `page-preload.js` | Small preload for all pages |

@@ -29,6 +29,7 @@ const { readResponseBytes, assertImageLimits } = require('./bounded-fetch');
 const { createUpdater } = require('./updater');
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
+const { guardExtensionRouter } = require('./extension-guard');
 
 // Separate profile folder for tests: does not touch the user's running Mondium or data (single-instance lock is per folder too)
 if (process.env.MONDIUM_PROFILE) app.setPath('userData', process.env.MONDIUM_PROFILE);
@@ -169,16 +170,18 @@ const CONFIG = {
     CUSTOM_LIST_URL
   ]
 };
-const NEWTAB_BASE = pathToFileURL(path.join(__dirname, 'newtab.html')).href;
+// With the grantFileProtocolExtraPrivileges fuse off, file: cannot read inside app.asar, so the pages stay outside it (build.asarUnpack).
+const PAGES_DIR = __dirname.replace(/app.asar$/, 'app.asar.unpacked');
+const NEWTAB_BASE = pathToFileURL(path.join(PAGES_DIR, 'newtab.html')).href;
 const newtabUrl = () => NEWTAB_BASE + '#' + encodeURIComponent(searchUrl());
 const isNewtab = (u) => typeof u === 'string' && u.split('#')[0] === NEWTAB_BASE;
-const WELCOME_URL = pathToFileURL(path.join(__dirname, 'welcome.html')).href;
-const HISTORY_URL = pathToFileURL(path.join(__dirname, 'history.html')).href;
-const DOWNLOADS_URL = pathToFileURL(path.join(__dirname, 'downloads.html')).href;
-const SETTINGS_URL = pathToFileURL(path.join(__dirname, 'settings.html')).href;
-const SECURITY_URL = pathToFileURL(path.join(__dirname, 'securitywarning.html')).href;
-const TASKS_URL = pathToFileURL(path.join(__dirname, 'taskmanager.html')).href;
-const EXTENSIONS_URL = pathToFileURL(path.join(__dirname, 'extensions.html')).href;
+const WELCOME_URL = pathToFileURL(path.join(PAGES_DIR, 'welcome.html')).href;
+const HISTORY_URL = pathToFileURL(path.join(PAGES_DIR, 'history.html')).href;
+const DOWNLOADS_URL = pathToFileURL(path.join(PAGES_DIR, 'downloads.html')).href;
+const SETTINGS_URL = pathToFileURL(path.join(PAGES_DIR, 'settings.html')).href;
+const SECURITY_URL = pathToFileURL(path.join(PAGES_DIR, 'securitywarning.html')).href;
+const TASKS_URL = pathToFileURL(path.join(PAGES_DIR, 'taskmanager.html')).href;
+const EXTENSIONS_URL = pathToFileURL(path.join(PAGES_DIR, 'extensions.html')).href;
 const baseOf = (u) => (typeof u === 'string' ? u.split('#')[0].split('?')[0] : '');
 // Short names shown in and typeable into the address bar
 const PAGE_ALIASES = {
@@ -199,6 +202,7 @@ function pageKind(u) {
   if (b === WELCOME_URL) return 'welcome';
   return isNewtab(u) ? 'newtab' : null;
 }
+ipcMain.on('mondium-is-internal-page', (e) => { e.returnValue = !!pageKind(e.senderFrame && e.senderFrame.url); });
 const isInternal = (u) => !!pageKind(u);
 function displayUrl(u) {
   const k = pageKind(u);
@@ -772,6 +776,11 @@ const PERM_TEXT = {
   openExternal: { icon: 'open', text: 'Bilgisayarınızdaki bir uygulamayı açmak' },
   media: { icon: 'camera', text: 'Kameranızı kullanmak' }
 };
+const realOrigin = (u) => { const o = originOf(u); return o === 'null' ? '' : o; };
+const mediaKinds = (details) => { const t = ((details && details.mediaTypes) || []).filter((m) => m === 'audio' || m === 'video'); return t.length ? t : ['audio', 'video']; };
+const externalScheme = (details) => { const m = /^([a-z][a-z0-9+.-]{0,31}):/i.exec((details && details.externalURL) || ''); return m ? m[1].toLowerCase() : ''; };
+// The request handler refuses these with no prompt, so the check handler must not call them granted.
+const NEVER_GRANTED_CHECKS = new Set(['clipboard-read', 'deprecated-sync-clipboard-read', 'local-fonts', 'window-management', 'idle-detection', 'midi', 'midiSysex']);
 function mediaText(details) {
   const t = (details && details.mediaTypes) || [];
   const rows = [];
@@ -801,18 +810,27 @@ function extPermissionRows(m) {
     ['management', 'Uygulamalarınızı, uzantılarınızı ve temalarınızı yönetebilir'], ['tabCapture', 'Ekranınızın içeriğini yakalayabilir'],
     ['desktopCapture', 'Ekranınızın içeriğini yakalayabilir'], ['privacy', 'Gizlilik ayarlarınızı değiştirebilir'],
     ['proxy', 'Ağ trafiğinizi başka sunucuya yönlendirebilir'], ['nativeMessaging', 'Bilgisayarınızdaki uygulamalarla iletişim kurabilir'],
-    ['userScripts', 'Sayfalarda kendi betiklerini çalıştırabilir']
+    ['userScripts', 'Sayfalarda kendi betiklerini çalıştırabilir'],
+    ['cookies', 'Çerezlerinizi okuyup değiştirebilir'], ['scripting', 'Sayfalarda kod çalıştırabilir'],
+    ['webRequest', 'Ağ isteklerinizi görebilir ve değiştirebilir'], ['webRequestBlocking', 'Ağ isteklerinizi görebilir ve değiştirebilir'],
+    ['declarativeNetRequest', 'Ağ isteklerinizi görebilir ve değiştirebilir'], ['declarativeNetRequestWithHostAccess', 'Ağ isteklerinizi görebilir ve değiştirebilir'],
+    ['webNavigation', 'Tarama geçmişinizi okuyabilir'], ['browsingData', 'Gezinti verilerinizi silebilir']
   ];
   const seen = new Set();
   for (const [p, text] of map) if (perms.has(p) && !seen.has(text) && !(p === 'tabs' && perms.has('history'))) { seen.add(text); rows.push({ icon: 'check', text }); }
+  // Anything not known to be harmless is named, so the bubble never claims more safety than it knows.
+  const harmless = new Set(['storage', 'unlimitedStorage', 'alarms', 'contextMenus', 'activeTab', 'offscreen', 'sidePanel', 'idle', 'power', 'tts', 'fontSettings', 'action', 'commands', 'background']);
+  const listed = new Set(map.map(([p]) => p));
+  const other = [...perms].filter((p) => !/[:/*]/.test(p) && p !== '<all_urls>' && !harmless.has(p) && !listed.has(p) && p !== 'debugger');
+  if (other.length) rows.push({ icon: 'check', text: T('Diğer izinler:') + ' ' + other.join(', ') });
   if (!rows.length) rows.push({ icon: 'check', text: 'Özel izin gerektirmiyor' });
   return rows;
 }
 const prompts = [];   // { id, w, data, resolve, shown }
 let promptSeq = 1;
-function askPrompt(data) {
+function askPrompt(data, owner) {
   return new Promise((resolve) => {
-    const p = { id: promptSeq++, w: W, data, resolve, shown: false };
+    const p = { id: promptSeq++, w: W, data, resolve, shown: false, owner };
     prompts.push(p);
     if (!prompts.some((x) => x !== p && x.w === p.w)) showPrompt(p);
   });
@@ -821,6 +839,8 @@ function showPrompt(p) {
   inWin(p.w, () => {
     if (!win || !ui) { settlePrompt(p, 'dismiss'); return; }
     if (overlayOpen) closeOverlay(false);
+    // The browser UI is hidden in HTML fullscreen. Leave it so the bubble is seen. Isolated world: the page cannot replace exitFullscreen there.
+    if (htmlFullscreen) withActive((wc) => { wc.executeJavaScriptInIsolatedWorld(1012, [{ code: 'document.exitFullscreen && document.exitFullscreen()' }]).catch(() => {}); });
     p.shown = true;
     overlayOpen = true;
     overlayKind = 'prompt';
@@ -843,6 +863,10 @@ function settlePrompt(p, answer) {
     if (next) showPrompt(next); else withActive((wc) => wc.focus());
   });
 }
+// A question belongs to the page that asked it: when that page goes away, the answer must not land on what replaced it.
+function dismissPromptsOf(wc) {
+  for (const p of prompts.filter((x) => x.owner === wc)) settlePrompt(p, 'dismiss');
+}
 function answerPrompt(arg) {
   const p = prompts.find((x) => x.id === (arg && arg.id));
   if (p) settlePrompt(p, arg.answer === 'ok' ? 'ok' : arg.answer === 'cancel' ? 'cancel' : 'dismiss');
@@ -858,6 +882,7 @@ function getIncognitoSession() {
 }
 function endIncognito() {
   if (!incognitoSes || windows.some((w) => w.incognito)) return;
+  for (const b of BrowserWindow.getAllWindows()) if (b.webContents.session === incognitoSes) b.destroy();   // popups are not in the window list
   incognitoSes.clearStorageData().catch(() => {});
   incognitoSes.clearCache().catch(() => {});
   for (const k of Object.keys(incognitoPerms)) delete incognitoPerms[k];
@@ -902,22 +927,37 @@ function setupSession(ses = mainSes, incognito = false) {
   ses.setPermissionRequestHandler((wc, permission, cb, details) => {
     if (alwaysAllow.has(permission) || deviceKinds.has(permission)) return cb(true);
     if (!PERM_TEXT[permission]) return cb(false);
-    const origin = originOf(details.requestingUrl || wc.getURL());
-    const key = origin + '|' + permission;
-    const k = known(key);
-    if (k !== undefined) return cb(k);
+    // A srcdoc or about:blank frame has no origin of its own and acts for the page holding it. Local files get no site permissions.
+    const origin = realOrigin(details.requestingUrl) || realOrigin(wc.getURL());
+    if (!origin) return cb(false);
+    const media = permission === 'media' ? mediaKinds(details) : null;
+    const scheme = permission === 'openExternal' ? externalScheme(details) : null;
+    if (permission === 'openExternal' && !scheme) return cb(false);
+    const keysFor = media ? media.map((m) => `${origin}|${m}`) : [scheme ? `${origin}|openExternal:${scheme}` : `${origin}|${permission}`];
+    if (known(`${origin}|${permission}`) === false || keysFor.some((key) => known(key) === false)) return cb(false);   // includes older shared decisions
+    // Screen capture has no picker here, so every use is asked again. A Block is remembered.
+    const open = permission === 'display-capture' ? keysFor : keysFor.filter((key) => known(key) !== true);
+    if (!open.length) return cb(true);
     const w = winOfWc(wc);
     if (!w) return cb(false);
     useWin(w);
-    const want = permission === 'media' ? mediaText(details) : PERM_TEXT[permission];
-    askPrompt({ host: hostOf(origin), title: `${hostOf(origin)} şunu istiyor:`, rows: [].concat(want), ok: 'İzin ver', cancel: 'Engelle', kind: 'perm' }).then((r) => {
-      if (r !== 'dismiss') { perms[key] = r === 'ok'; if (!incognito) saveSettings(); }
+    let want = PERM_TEXT[permission];
+    if (media) want = mediaText({ mediaTypes: media.filter((m) => open.includes(`${origin}|${m}`)) });
+    if (scheme) want = { ...want, text: `${want.text} (${scheme}:)` };
+    askPrompt({ host: hostOf(origin), title: `${hostOf(origin)} şunu istiyor:`, rows: [].concat(want), ok: 'İzin ver', cancel: 'Engelle', kind: 'perm' }, wc).then((r) => {
+      if (r !== 'dismiss' && !(r === 'ok' && permission === 'display-capture')) { for (const key of open) perms[key] = r === 'ok'; if (!incognito) saveSettings(); }
       cb(r === 'ok');
     });
   });
-  ses.setPermissionCheckHandler((_wc, permission, origin) => {
+  ses.setPermissionCheckHandler((_wc, permission, origin, details) => {
     if (alwaysAllow.has(permission) || deviceKinds.has(permission)) return true;
-    const k = known(origin + '|' + permission);
+    if (NEVER_GRANTED_CHECKS.has(permission)) return false;
+    const from = realOrigin(origin) || origin;
+    if (permission === 'media' && details && (details.mediaType === 'audio' || details.mediaType === 'video')) {
+      const kind = known(`${from}|${details.mediaType}`);
+      if (kind !== undefined) return kind;
+    }
+    const k = known(from + '|' + permission);
     if (k !== undefined) return k;
     return permission !== 'notifications';
   });
@@ -1130,6 +1170,14 @@ function registerExtensionTab(wc, w) {
     if (selected && selected.view) extensions.selectTab(selected.view.webContents);
   } finally { extensionTabRegistrationDepth--; }
 }
+// Web pages open web pages. Chromium blocks data: and internal addresses for a page, and newTab would load them as the browser itself.
+const webMayOpen = (opener, url) => !/^https?:/i.test(opener || '') || /^(https?:|blob:|about:blank$)/i.test(url || '');
+// window.open's feature string also sets these: a page must not make an always-on-top window the user cannot close.
+const POPUP_OPTIONS = {
+  width: 520, height: 680, autoHideMenuBar: true, webPreferences: { sandbox: true },
+  alwaysOnTop: false, closable: true, minimizable: true, maximizable: true, movable: true, resizable: true, focusable: true,
+  frame: true, transparent: false, kiosk: false, fullscreen: false, fullscreenable: true, skipTaskbar: false, titleBarStyle: 'default', opacity: 1
+};
 function toUrl(input) {
   const s = (input || '').trim();
   if (!s) return newtabUrl();
@@ -1168,12 +1216,8 @@ function createView(tab) {
   wc.setWindowOpenHandler(({ url, disposition }) => {
     useWin(tab.w);
     if (showThreatWarning(wc, url)) return { action: 'deny' };
-    if (disposition === 'new-window') {
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, webPreferences: { sandbox: true } }
-      };
-    }
+    if (!webMayOpen(wc.getURL(), url)) return { action: 'deny' };
+    if (disposition === 'new-window') return { action: 'allow', overrideBrowserWindowOptions: POPUP_OPTIONS };
     newTab(url, disposition === 'background-tab', tab.id);
     return { action: 'deny' };
   });
@@ -1183,6 +1227,18 @@ function createView(tab) {
     if (child.setMenu) child.setMenu(null);
     const cwc = child.webContents;
     attachLoginFix(cwc);                         // "Sign in with Google" popups
+    // A popup follows the same rules as its tab: later windows become tabs, and a listed site opens in a tab, which shows the warning.
+    const toTab = (to) => { if (tab.w && tab.w.win) { useWin(tab.w); newTab(to, false, tab.id); } };
+    cwc.setWindowOpenHandler(({ url: to }) => { if (webMayOpen(cwc.getURL(), to)) toTab(to); return { action: 'deny' }; });
+    const guard = (event, to) => {
+      const target = event.url || to;
+      if (trustedThreatHosts.get(tab.w)?.has(hostOf(target)) || !threatProtection.isBlocked(target)) return;
+      event.preventDefault();
+      toTab(target);
+      child.close();
+    };
+    cwc.on('will-navigate', guard);
+    cwc.on('will-redirect', guard);
     const u = (details && details.url) || cwc.getURL();
     if (isGoogleLogin(u)) { cwc.setUserAgent(LOGIN_UA); cwc.loadURL(u, { userAgent: LOGIN_UA }).catch(() => {}); }
   });
@@ -1205,6 +1261,7 @@ function createView(tab) {
   on('did-stop-loading', () => { tab.loading = false; if (!tab.pendingNavigation) tab.url = wc.getURL() || tab.url; schedulePush(); });
   on('did-start-navigation', (e) => {
     if (e.isMainFrame && !e.isSameDocument) {
+      dismissPromptsOf(wc);
       navigationEpoch.set(wc, (navigationEpoch.get(wc) || 0) + 1); tab.blocked = 0; tab.favicon = null; tab.iconColor = null;
       if (e.url) showThreatWarning(wc, e.url);   // also catches history navigation; the main session has no header-level check with uBO
     }
@@ -2377,6 +2434,7 @@ async function setupExtensions() {
         createWindow: async (details) => { useWin(lastWin(true)); [].concat(details.url || '').forEach((u) => newTab(u)); return win; },
         removeWindow: () => {}
       });
+      guardExtensionRouter(extensions, ses, webContents);
       ECE.handleCRXProtocol(ses);
       for (const t of allTabs()) if (t.view && !t.w.incognito) { try { registerExtensionTab(t.view.webContents, t.w); } catch {} }
       forEachWin((w) => { if (!w.incognito && activeTab() && activeTab().view) { try { extensions.selectTab(activeTab().view.webContents); } catch {} } });
@@ -3362,7 +3420,7 @@ function createWindow(opts = {}) {
     }
   });
   ui.setBackgroundColor('#00000000');   // so the page shows behind while a menu is open
-  ui.webContents.loadFile(path.join(__dirname, 'ui.html'));
+  ui.webContents.loadFile(path.join(PAGES_DIR, 'ui.html'));
   const uw = ui.webContents;
   uw.on('before-input-event', (e, input) => {
     useWin(w);

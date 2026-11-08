@@ -11,6 +11,10 @@ This review fixes specific identified paths. It is not a claim that the browser 
   - Web Store packages must be CRX3 with a verified signature; CRX2 is rejected.
   - Archives have limits on size, entry count, per-file and total output. Unsafe paths, duplicate names and symlinks are rejected.
   - Extension file access is off by default.
+  - `extension-guard.js` adds checks the extension library leaves out: identity comes from the calling channel, cookies and tab details follow the manifest, and extensions cannot open local files or internal pages.
+- **Local files:** Electron's extra `file:` privileges are switched off with a fuse, so a local HTML file has browser-like limits. Internal pages stay outside `app.asar` for this reason, and only the exact internal pages get the page bridge.
+- **Site permissions:** decisions are kept per origin and per kind (microphone, camera, each external app scheme). Screen capture asks every time. Frames with no origin of their own act for their page, and a prompt ends when the page that asked goes away.
+- **Popups:** `window.open` cannot set always-on-top, non-closable and similar window options, and web pages can only open web addresses.
 - **User scripts:** registration requires the manifest permission. Injection and messaging also require host permission, a matching sender document, the right session and an issued script world. Batches, script sizes and pending requests are bounded.
 - **Network reads:** icon and metadata bodies are limited while reading, not after allocating them. Image dimensions are checked, and at most three icon jobs run at once.
 - **Malicious sites:** a local domain layer uses the URLhaus and badware lists bundled with uBlock Origin. Installed builds refresh URLhaus every twelve hours. No browsing URL is sent to the list provider. Matches show a warning page, and an exception lasts only for that window. This is not a file scanner or Google Safe Browsing.
@@ -20,7 +24,7 @@ This review fixes specific identified paths. It is not a claim that the browser 
 
 ## Not covered
 
-Mondium has no application updater; engine fixes need a new installer. The installer is not Windows Authenticode signed, and Widevine VMP signing needs a castLabs EVS account.
+Updates rest on GitHub release access, with no separate signature. The installer is not Windows Authenticode signed, and Widevine VMP signing needs a castLabs EVS account.
 
 ## Checks before each release
 
