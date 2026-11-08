@@ -247,7 +247,7 @@
   .xp .pin:hover { background:var(--hover); }
 
   /* ---------- Bookmarks bar ---------- */
-  #bbar { height:32px; background:var(--toolbar); display:none; align-items:center; gap:2px; padding:0 8px 2px; overflow:hidden; border-bottom:1px solid var(--border); }
+  #bbar { height:32px; background:var(--toolbar); display:none; align-items:center; gap:2px; padding:0 8px 2px; overflow:hidden; border-bottom:1px solid transparent; }
   body.bbar #bbar { display:flex; }
   .bm { height:28px; max-width:170px; display:flex; align-items:center; gap:6px; padding:0 8px; border-radius:14px; color:var(--text); flex:none; }
   .bm:hover { background:var(--hover); }
@@ -331,7 +331,6 @@
   /* ---------- Find bar ---------- */
   #find { height:40px; background:var(--toolbar); display:none; align-items:center; justify-content:flex-end; padding:0 12px; border-top:1px solid var(--border); gap:4px; }
   body.find #find { display:flex; }
-  body:not(.bbar):not(.find) #toolbar { border-bottom-color:var(--border); }
   #findbox { display:flex; align-items:center; height:30px; width:360px; max-width:70%; border-radius:6px; background:var(--omni); padding:0 4px 0 10px; }
   #findq { flex:1; border:0; outline:none; background:none; color:var(--text); font:13px "Segoe UI", system-ui, sans-serif; min-width:0; user-select:text; -webkit-user-select:text; }
   #findn { color:var(--dim); padding:0 8px; font-size:12px; white-space:nowrap; }
