@@ -34,14 +34,14 @@
   nav .sep { height:1px; background:var(--border); margin:8px 0 8px 24px; }
   nav .updot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:var(--accent); flex:none; }
   /* Soft glow: shows which section was just opened, in the menu and on the page */
-  nav a.glow { animation:navGlow 1.8s ease-out; }
+  nav a.glow { animation:navGlow .35s ease-out; }
   @keyframes navGlow {
-    0%, 35% { background:color-mix(in srgb, var(--accent) 45%, transparent); box-shadow:0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
+    0% { background:color-mix(in srgb, var(--accent) 45%, transparent); box-shadow:0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
     100% { background:var(--sel); box-shadow:0 0 14px transparent; }
   }
-  .card.glow { animation:cardGlow 1.8s ease-out; }
+  .card.glow { animation:cardGlow .35s ease-out; }
   @keyframes cardGlow {
-    0%, 35% { box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+    0% { box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent); }
     100% { box-shadow:0 0 0 2px transparent, 0 0 18px transparent; }
   }
   .upctl { display:flex; gap:8px; flex:none; align-items:center; }
@@ -745,6 +745,9 @@ function pickSection(id) {
   glowCard = h && h.nextElementSibling;
   clearTimeout(pickedTimer);
   pickedTimer = setTimeout(jumpEnded, 700);   // no scrollend event if the page does not need to move
+  // Already in place: flash right away instead of waiting for that timer
+  const y = scrollY;
+  setTimeout(() => { if (glowCard && scrollY === y) { glow(glowCard); glowCard = null; } }, 80);
 }
 $('nav').addEventListener('click', (e) => {
   const a = e.target.closest('a');
