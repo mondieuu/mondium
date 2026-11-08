@@ -197,6 +197,7 @@
   #dl.show { display:flex; }
   #dl .ring { position:absolute; inset:5px; border-radius:50%; pointer-events:none;
     -webkit-mask:radial-gradient(circle, transparent 10.5px, #000 11px); }
+  #menu.upd::after { content:''; position:absolute; top:6px; right:7px; width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px var(--toolbar); }
   #toolbar .sepv { width:1px; height:20px; background:var(--border); margin:0 4px; opacity:.6; }
 
   #star { width:28px; height:28px; margin-right:4px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--dim); flex:none; }
@@ -819,6 +820,7 @@ function renderSide(s) {
   const body = document.body;
   body.classList.toggle('vert', vert);
   body.classList.toggle('fs', !!s.fullscreen);
+  $('menu').classList.toggle('upd', !!s.updateAvailable);
   body.classList.toggle('autohide', vert && !!s.autoHide);
   if (!sizing) body.classList.toggle('reveal', !!s.sideOpen);
   // Tab list and the "Incognito" badge move depending on the layout
@@ -1012,6 +1014,7 @@ function menuModel(d, kind) {
     return items;
   };
   return [
+    ...(d.updateVersion ? [{ icon: MI.info, label: `Yeni sürüm var: ${d.updateVersion}`, act: 'update' }, { sep: true }] : []),
     { icon: MI.newtab, label: 'Yeni sekme', accel: 'Ctrl+T', act: 'new-tab' },
     { icon: MI.window, label: 'Yeni pencere', accel: 'Ctrl+N', act: 'new-window' },
     { icon: MI.incognito, label: 'Yeni gizli pencere', accel: 'Ctrl+Shift+N', act: 'new-incognito' },

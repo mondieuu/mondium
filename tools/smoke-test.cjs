@@ -205,6 +205,16 @@ async function main() {
     await wait(800);
     if (st) await shot(st, 'settings.png');
     desktopShot('desktop-settings.png');
+    if (st) {
+      // The last sections cannot scroll to the top of the page; the left menu must still mark the one that was clicked.
+      await val(st, `document.querySelector('nav a[href="#hakkinda"]').click(); 1`);
+      await wait(1200);
+      report(await val(st, `document.querySelector('nav a.on').getAttribute('href')`) === '#hakkinda', 'left menu marks the picked section');
+      report(await val(st, `/Check for updates/.test(document.querySelector('#hakkinda + .card').innerText)`), 'update button is shown');
+      await shot(st, 'settings-about.png');
+      await val(st, `scrollTo(0, 0); 1`);
+      await wait(600);
+    }
 
     if (process.platform === 'darwin' && st && mainWs) await macWindowButtons({ uiWs, mainWs, st });
 

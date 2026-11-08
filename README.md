@@ -94,6 +94,7 @@ Clear everything, except the sites you choose to keep signed in to.
 - **Import bookmarks** from Chrome, Edge, Brave, Opera, Vivaldi, Yandex or Firefox in one click, or from any exported HTML file. Read locally, nothing is sent anywhere; imports land in a folder on the bookmarks bar.
 - **Address bar suggestions** from local history and bookmarks only. Nothing you type is sent to a search engine until you press Enter.
 - Chrome keyboard shortcuts, tab pinning and muting, reopen closed tabs, bookmarks bar, downloads and history pages.
+- **Updates when you want them.** Settings → About Mondium checks GitHub for a new version and shows a dot on the ⋮ button when there is one. Nothing is installed until you click **Update**. Each system updates its own way: the Windows installer, the macOS app, the Linux `.deb` (asks your password) or AppImage, always verified against the SHA-256 that GitHub lists for the file.
 
 ### Compatibility
 - **Chrome Web Store extensions** can be installed directly, and you can manage, hide and remove them from a Chrome-like extensions page.
@@ -178,6 +179,7 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 | `site-data.js` | Protected sites: site rules, engine inventory, selective cleanup |
 | `settings.html`, `newtab.html`, `history.html`, `downloads.html`, `extensions.html`, `taskmanager.html`, `securitywarning.html` | Internal pages |
 | `secure-crx.js`, `bounded-fetch.js`, `threat-protection.js`, `private-ubo.js` | Extension package verification, size-limited downloads, malicious-site list, Incognito network filter |
+| `updater.js` | Update check and install from GitHub releases, per operating system |
 | `volume.js`, `hoverzoom.js`, `reader.js` | Built-in tools injected into isolated worlds |
 | `page-preload.js` | Small preload for all pages |
 | `i18n.js` | English translations of the UI (Turkish is the source language) |
@@ -186,7 +188,7 @@ Netflix, Disney+ and similar services require a production Widevine VMP signatur
 
 ## Privacy note
 
-Mondium has no server and collects nothing. All data (settings, history, downloads, cookies) stays on your machine: in `%APPDATA%\Mondium` on Windows, `~/Library/Application Support/Mondium` on macOS and `~/.config/Mondium` on Linux.
+Mondium has no server and collects nothing. The update check asks GitHub at most once a day from a separate session without your cookies, so GitHub sees only your IP address; you can turn it off in Settings. All data (settings, history, downloads, cookies) stays on your machine: in `%APPDATA%\Mondium` on Windows, `~/Library/Application Support/Mondium` on macOS and `~/.config/Mondium` on Linux.
 
 ## License
 
@@ -214,6 +216,7 @@ Mondium is not affiliated with Google or the Chromium project.
 - **Yerleşik araçlar:** Ses yükseltme (sekme başına %600'e kadar), resim büyütme (`Z` ile sabitle, tekerlekle yakınlaştır, `S` ile indir), okuma modu (`F9`), resim içinde resim.
 - **Yer işareti aktarma:** Chrome, Edge, Brave, Opera, Vivaldi, Yandex veya Firefox'tan tek tıkla ya da HTML dosyasından. Dosyalar sadece bu bilgisayarda okunur.
 - **Uyumluluk:** Chrome Web Mağazası uzantıları, Widevine DRM, WebHID / WebUSB / Web Serial / Web Bluetooth, yerleşik PDF görüntüleyici.
+- **Güncelleme size bağlı:** Ayarlar → Mondium hakkında GitHub'dan yeni sürümü denetler, varsa ⋮ düğmesinde nokta görünür. **Güncelle**'ye basmadan hiçbir şey kurulmaz. Her sistem kendi yöntemiyle güncellenir: Windows kurulum dosyası, macOS uygulaması, Linux `.deb` (parola sorar) ya da AppImage. Dosya, GitHub'ın verdiği SHA-256 ile doğrulanır.
 
 ### İndir
 **[⬇ En son Mondium'u indir](https://github.com/mondieuu/mondium/releases/latest)** ve *Assets* altından sisteminize uygun dosyayı seçin:
@@ -256,6 +259,6 @@ npm start
 Kurulum dosyası için `npm run dist:win`, `npm run dist:mac` ya da `npm run dist:linux`.
 
 ### Gizlilik notu
-Mondium'un sunucusu yok ve hiçbir veri toplamaz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda kalır: Windows'ta `%APPDATA%\Mondium`, macOS'ta `~/Library/Application Support/Mondium`, Linux'ta `~/.config/Mondium`.
+Mondium'un sunucusu yok ve hiçbir veri toplamaz. Güncelleme denetimi günde en fazla bir kez, çerezleriniz olmadan ayrı bir oturumdan GitHub'a sorar; GitHub sadece IP adresinizi görür, Ayarlar'dan kapatabilirsiniz. Ayarlar, geçmiş, indirmeler ve çerezler bilgisayarınızda kalır: Windows'ta `%APPDATA%\Mondium`, macOS'ta `~/Library/Application Support/Mondium`, Linux'ta `~/.config/Mondium`.
 
 Lisans: [GPL-3.0](LICENSE). Kaynak gösterimi için [NOTICE](NOTICE.md). Mondium, Google veya Chromium projesiyle bağlantılı değildir.

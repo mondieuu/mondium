@@ -26,6 +26,7 @@ let ElectronBlockerLib = null;
 const ElectronBlockerLazy = () => ElectronBlockerLib || (ElectronBlockerLib = require('@ghostery/adblocker-electron').ElectronBlocker);
 const { createThreatProtection } = require('./threat-protection');
 const { readResponseBytes, assertImageLimits } = require('./bounded-fetch');
+const { createUpdater } = require('./updater');
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
 
@@ -69,6 +70,10 @@ const DEFAULTS = {
   newTabPrompt: false,       // Ctrl+T opens a search/address box first instead of the new tab page
   overlayScrollbar: true,    // thin overlay scrollbar that takes no page width
   memorySaver: false,        // V8 --optimize-for-size: less RAM, possibly slower heavy sites (restart)
+  autoUpdateCheck: true,     // at most once a day, ask GitHub if a new version exists and show it; installing is the user's choice
+  updateCheckedAt: 0,
+  updateKnown: '',           // newest version seen, so the indicator survives a restart without asking GitHub again
+  restoreOnce: false,        // the restart after an update brings the tabs back even if restoreSession is off
   clearGoogleOnExit: false,  // when on, Google cookies/site data are cleared on exit (signs out of Google)
   keepLogins: true,          // keep site logins across restarts (session cookies are made persistent)
   newtabClock: 'top',        // new tab clock: 'top' (above the logo), 'tl', 'tr', 'bl', 'br' (corners) or 'off'
@@ -1256,7 +1261,9 @@ function recordVisit(tab, url, wc) {
 
 // Previous session: tabs come back asleep (using no memory), only the active one is loaded.
 function restoreSession() {
-  if (!settings.restoreSession) return false;
+  const once = settings.restoreOnce;
+  if (once) { settings.restoreOnce = false; saveSettings(true); }
+  if (!settings.restoreSession && !once) return false;
   let data = null;
   try { data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')); } catch { return false; }
   const wins = data && Array.isArray(data.windows) ? data.windows : data && Array.isArray(data.tabs) ? [data] : [];   // old format: single window
@@ -1754,6 +1761,7 @@ function pushState() {
     theme: W.incognito ? INCOGNITO_THEME : themeVars(),
     incognito: !!W.incognito,
     tabAudio: !!settings.tabAudio,
+    updateAvailable: updater.indicator(),
     vertical: vertical(), fullscreen: win.isFullScreen(), autoHide: !!settings.verticalAutoHide, sideWidth: sideWidth(win.getContentBounds().width), sideMin: SIDE_MIN,
     sideOpen: overlayOpen && (overlayKind === 'side' || overlayKind === 'sidedrag'), sideEdge: settings.sideEdge || 2,
     ubo: !!uboId && !W.incognito,
@@ -2049,6 +2057,34 @@ function setSetting(key, value, needsRestart) {
   }).then((r) => { if (r.response === 0) { app.relaunch(); app.quit(); } });
 }
 
+// ---------------------------------------------------------------- Updates from GitHub (updater.js)
+const updater = createUpdater({
+  app, session, shell,
+  getSettings: () => settings,
+  save: () => saveSettings(),
+  onChange: () => {
+    forEachWin(() => schedulePush());
+    for (const t of allTabs()) {
+      if (t.view && pageKind(t.url) === 'settings') inWin(t.w, () => { try { t.view.webContents.send('page-update', { ...pageData(), changed: 'update' }); } catch {} });
+    }
+  },
+  // Asked only when restarting would lose something; otherwise the user's click on the button is enough.
+  async confirmRestart() {
+    const running = downloads.some((d) => d.state === 'progressing');
+    const incognito = windows.some((w) => w.incognito);
+    if (running || incognito) {
+      const notes = [];
+      if (running) notes.push(T('Devam eden indirmeler durur.'));
+      if (incognito) notes.push(T('Gizli pencereler kapanır.'));
+      const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Yeniden başlat', 'Vazgeç'], defaultId: 1, cancelId: 1, message: 'Mondium güncellemek için yeniden başlatılacak.', detail: notes.join('\n') });
+      if (r.response !== 0) return false;
+    }
+    settings.restoreOnce = true;
+    saveSettings(true);
+    return true;
+  }
+});
+
 // ---------------------------------------------------------------- Chrome-style menu (drawn in the UI layer, no extra process)
 function openOverlay(arg) {
   if (!win || !ui || overlayKind === 'prompt') return;
@@ -2114,6 +2150,7 @@ function menuData() {
     closed: closedTabs.slice(0, 8).map((c, i) => ({ i, title: c.title, favicon: c.favicon })),
     canRead: (() => { const t = activeTab(); return !!t && /^https?:/i.test(t.url); })(),
     incognito: !!W.incognito,
+    updateVersion: updater.indicator() ? updater.latest() : null,
     version: app.getVersion()
   };
 }
@@ -2127,6 +2164,7 @@ function menuAction(id, arg) {
     case 'downloads': openPage(DOWNLOADS_URL); break;
     case 'history': openPage(HISTORY_URL); break;
     case 'settings': openPage(SETTINGS_URL); break;
+    case 'update': openSettingsAt('hakkinda'); break;
     case 'reopen': reopenClosed(Number(arg) || 0); break;
     case 'reader': withActive((wc) => toggleReader(wc)); break;
     case 'pip': withActive((wc) => pictureInPicture(wc)); break;
@@ -2984,6 +3022,7 @@ function settingsData() {
     askDownloadLocation: settings.askDownloadLocation === true,
     newTabPrompt: settings.newTabPrompt === true,
     overlayScrollbar: settings.overlayScrollbar !== false,
+    autoUpdateCheck: settings.autoUpdateCheck !== false,
     memorySaver: settings.memorySaver === true,
     uboError: settings.adblockEngine !== 'hafif' && mainBlockSettled && !uboId,
     theme: settings.theme, themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name, mode: t.mode, frame: t.frame || null, accent: t.accent || null })),
@@ -3042,7 +3081,7 @@ function settingsSet(key, value) {
     case 'newtabClockFont': return setNewtabClock({ font: value });
     case 'newtabClockWeight': return setNewtabClock({ weight: value });
     case 'hoverZoom': if (typeof value !== 'boolean') return false; setFeature(key, value); return true;
-    case 'newTabPrompt': case 'askDownloadLocation': return bool(key);
+    case 'newTabPrompt': case 'askDownloadLocation': case 'autoUpdateCheck': return bool(key);
     case 'overlayScrollbar': if (typeof value !== 'boolean') return false; setSetting(key, value, true); return true;
     case 'sleepTabs': return bool(key);
     case 'tabAudio':
@@ -3093,6 +3132,12 @@ ipcMain.handle('page', async (e, cmd, arg) => {
   if (kind === 'settings') {
     switch (cmd) {
       case 'settings-get': return settingsData();
+      case 'update-status': return updater.status();
+      case 'update-check': updater.check(); return updater.status();
+      case 'update-download': updater.download(); return updater.status();
+      case 'update-cancel': updater.cancel(); return updater.status();
+      case 'update-apply': updater.apply(); return updater.status();
+      case 'update-notes': newTab(updater.notesUrl(), false, activeId); return { ok: true };
       case 'settings-set': { const ok = settingsSet(arg && arg.key, arg && arg.value); notifyPages('settings'); return { ok }; }
       case 'clear-data': clearData(); return { ok: true };
       case 'ps-list': return { sites: siteData.list() };
@@ -3457,6 +3502,7 @@ app.whenReady().then(async () => {
   if (!opens.length && !restored) newTab(settings.firstRunDone ? '' : WELCOME_URL);
   setInterval(sleepIdleTabs, 60e3);
   setInterval(keepSessionCookies, 15 * 60e3);
+  updater.start();
 });
 
 // On quit: write settings, clear Google data
@@ -3477,5 +3523,7 @@ app.on('before-quit', (e) => {
   })();
   Promise.race([job, new Promise((r) => setTimeout(r, 4000))]).finally(() => app.quit());
 });
+
+app.on('quit', () => updater.runPending());
 
 app.on('window-all-closed', () => app.quit());

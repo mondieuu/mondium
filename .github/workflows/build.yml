@@ -51,6 +51,7 @@ jobs:
         run: |
           npm run test:security
           npm run test:platform
+          npm run test:update
       - name: Build installers
         run: ${{ matrix.dist }}
         env:
@@ -92,6 +93,39 @@ jobs:
           node tools/smoke-test.cjs /tmp/Mondium.app/Contents/MacOS/Mondium
         env:
           SMOKE_OUT: smoke-shots/${{ matrix.name }}
+
+      # A real update to the latest published release. Runs last: it replaces what was just tested.
+      - name: Test updating on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
+        run: |
+          $setup = (Get-ChildItem dist/Mondium-Setup-*.exe).FullName
+          Start-Process $setup -ArgumentList '/S' -Wait
+          node tools/update-test.cjs "$env:LOCALAPPDATA\Programs\Mondium\Mondium.exe"
+      - name: Test updating the .deb package on Linux
+        if: runner.os == 'Linux'
+        env:
+          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get install -y pkexec polkitd
+          echo 'polkit.addRule(function(action) { if (action.id == "org.freedesktop.policykit.exec") return polkit.Result.YES; });' | sudo tee /etc/polkit-1/rules.d/49-update-test.rules
+          sudo systemctl restart polkit
+          xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /opt/Mondium/mondium
+      - name: Test updating the AppImage on Linux
+        if: runner.os == 'Linux'
+        env:
+          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/mondium-update
+          cp dist/Mondium-*-linux-*.AppImage /tmp/mondium-update/Mondium.AppImage
+          xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /tmp/mondium-update/Mondium.AppImage
+      - name: Test updating on macOS
+        if: runner.os == 'macOS'
+        env:
+          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
+        run: node tools/update-test.cjs /tmp/Mondium.app/Contents/MacOS/Mondium
 
       - name: Keep test screenshots
         if: always()
