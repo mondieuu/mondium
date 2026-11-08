@@ -34,15 +34,15 @@
   nav .sep { height:1px; background:var(--border); margin:8px 0 8px 24px; }
   nav .updot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:var(--accent); flex:none; }
   /* Soft glow: shows which section was just opened, in the menu and on the page */
-  nav a.glow { animation:navGlow .35s ease-out; }
+  nav a.glow { animation:navGlow .15s ease-out; }
   @keyframes navGlow {
-    0% { background:color-mix(in srgb, var(--accent) 45%, transparent); box-shadow:0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
-    100% { background:var(--sel); box-shadow:0 0 14px transparent; }
+    0% { background:color-mix(in srgb, var(--accent) 38%, transparent); box-shadow:0 0 8px color-mix(in srgb, var(--accent) 22%, transparent); }
+    100% { background:var(--sel); box-shadow:0 0 8px transparent; }
   }
-  .card.glow { animation:cardGlow .35s ease-out; }
+  .card.glow { animation:cardGlow .15s ease-out; }
   @keyframes cardGlow {
-    0% { box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent); }
-    100% { box-shadow:0 0 0 2px transparent, 0 0 18px transparent; }
+    0% { box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent); }
+    100% { box-shadow:0 0 0 2px transparent, 0 0 10px transparent; }
   }
   .upctl { display:flex; gap:8px; flex:none; align-items:center; }
   .upbar { height:4px; margin-top:8px; border-radius:2px; background:var(--border); overflow:hidden; }
