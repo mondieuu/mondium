@@ -99,7 +99,7 @@ $startMenu = [Environment]::GetFolderPath('Programs') + '\Mondium.lnk'
 $browserKey = 'HKCU:\Software\Clients\StartMenuInternet\Mondium'
 
 function Close-Mondium {
-  taskkill /F /T /IM Mondium.exe 2>&1 | Out-Null
+  Get-Process Mondium -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Until { -not (Get-Process Mondium -ErrorAction SilentlyContinue) } 20 | Out-Null
   Start-Sleep -Milliseconds 500
 }

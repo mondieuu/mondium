@@ -135,6 +135,7 @@
     Exch $R1 ; first line
     Exch 2
     Exch $R0 ; button
+    !insertmacro mondiumHide 3
     GetDlgItem $0 $HWNDPARENT 1
     SendMessage $0 ${WM_SETTEXT} 0 "STR:$R0"
     nsDialogs::Create 1018
@@ -158,6 +159,7 @@
     Exch $R0 ; text
     !insertmacro mondiumHide 1
     !insertmacro mondiumHide 2
+    !insertmacro mondiumHide 3
     FindWindow $1 "#32770" "" $HWNDPARENT
     SetCtlColors $1 000000 ${MONDIUM_BG}
 
@@ -176,7 +178,6 @@
     GetDlgItem $0 $1 1027
     ShowWindow $0 ${SW_HIDE}
 
-    ; 5 pixels high at 100% scale
     System::Call 'user32::GetDC(p 0) p.r2'
     System::Call 'gdi32::GetDeviceCaps(p r2, i 88) i.r5'
     System::Call 'user32::ReleaseDC(p 0, p r2)'
@@ -186,7 +187,7 @@
     IntOp $7 $7 / 96
     IntOp $8 $5 * 60 ; top of the bar
     IntOp $8 $8 / 96
-    IntOp $9 $5 * 5 ; height of the bar
+    IntOp $9 $5 * 8 ; height of the bar, before its edge is cut off
     IntOp $9 $9 / 96
 
     System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "$R0", i 0x50000000, i 0, i r6, i r3, i r7, p r1, p 0, p 0, p 0) p.r0'
@@ -194,13 +195,20 @@
     SetCtlColors $0 ${MONDIUM_INK} ${MONDIUM_BG}
     SendMessage $0 ${WM_SETFONT} $mondiumTitleFont 1
 
+    GetDlgItem $0 $1 1006
+    System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i r8, i r3, i r7, i 0x14)'
+
     GetDlgItem $0 $1 1004
     System::Call 'uxtheme::SetWindowTheme(p r0, w "", w "")'
     System::Call 'user32::SetWindowLongPtrW(p r0, i -20, p 0)'
-    System::Call 'user32::SetWindowLongPtrW(p r0, i -16, p 0x50000000)'
+    System::Call 'user32::SetWindowLongPtrW(p r0, i -16, p 0x50000001)'
     SendMessage $0 0x0409 0 0x00221F1F
     SendMessage $0 0x2001 0 0x00EAE8E8
     System::Call 'user32::SetWindowPos(p r0, p 0, i 0, i r8, i r3, i r9, i 0x34)'
+    IntOp $3 $3 - 2
+    IntOp $9 $9 - 2
+    System::Call 'gdi32::CreateRectRgn(i 2, i 2, i r3, i r9) p.r2'
+    System::Call 'user32::SetWindowRgn(p r0, p r2, i 1)'
     Pop $R0
   FunctionEnd
 
@@ -300,6 +308,13 @@
       GetDlgItem $0 $HWNDPARENT 1
       ShowWindow $0 ${SW_SHOW}
       EnableWindow $0 1
+      GetDlgItem $5 $HWNDPARENT 2
+      System::Call '*(i,i,i,i) p.r2'
+      System::Call 'user32::GetWindowRect(p r5, p r2)'
+      System::Call 'user32::MapWindowPoints(p 0, p $HWNDPARENT, p r2, i 2)'
+      System::Call '*$2(i.r3,i.r4)'
+      System::Free $2
+      System::Call 'user32::SetWindowPos(p r0, p 0, i r3, i r4, i 0, i 0, i 0x15)'
       Push "$(mondiumUnClose)"
       Push "$(mondiumUnDone)"
       Push "$1"
