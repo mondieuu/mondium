@@ -227,6 +227,12 @@ async function main() {
     const blockedLater = pageLater && await until(async () => (await val(pageLater, `fetch('https://www.google-analytics.com/collect', { mode: 'no-cors', cache: 'no-store' }).then(() => 'reached', () => 'blocked')`)) === 'blocked', 10000);
     report(!!stillLoaded && !!blockedLater, 'uBlock Origin still loaded and blocking 45 s after start', `loaded ${!!stillLoaded}, tracker ${blockedLater ? 'blocked' : 'reached'}`);
 
+    // The patched store preload must load from the package and open the store API on the real origin.
+    await val(uiWs, `browserApi.send('navigate', 'https://chromewebstore.google.com/'); 1`);
+    const storePage = await findTarget(/^https:\/\/chromewebstore\.google\.com\//, 30000);
+    const storeApi = storePage && await until(async () => (await val(storePage, `typeof window.electronManagement === 'object' && typeof window.electronWebstore === 'object'`)) || null, 15000);
+    report(!!storeApi, 'Web Store API is available on the store origin', `api ${!!storeApi}`);
+
     // Clean exit. On macOS through the red window button's path: closing the last window quits the app.
     if (mainWs) {
       const leave = process.platform === 'darwin' ? 'E.BaseWindow.getAllWindows().forEach((w) => w.close())' : 'E.app.quit()';

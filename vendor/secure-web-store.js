@@ -988,6 +988,7 @@ async function loadAllExtensions(session, extensionsPath, options = {}) {
     }
   }
 }
+var isExtensionId = (id) => typeof id === 'string' && /^[a-p]{32}$/.test(id);
 async function findExtensionInstall(extensionId, extensionsPath) {
   const extensionPath = path2.join(extensionsPath, extensionId);
   let extensions = await discoverExtensions(extensionPath);
@@ -1057,6 +1058,7 @@ async function downloadExtension(extensionId, extensionsDir) {
   return await downloadExtensionFromURL(url, extensionsDir, extensionId);
 }
 async function installExtension(extensionId, opts = {}) {
+  if (!isExtensionId(extensionId)) throw Error('Invalid extension id');
   d2("installing %s", extensionId);
   const session = opts.session || import_electron2.session.defaultSession;
   const sessionExtensions = session.extensions || session;
@@ -1080,6 +1082,7 @@ async function installExtension(extensionId, opts = {}) {
   return extension;
 }
 async function uninstallExtension(extensionId, opts = {}) {
+  if (!isExtensionId(extensionId)) throw Error('Invalid extension id');
   d2("uninstalling %s", extensionId);
   const session = opts.session || import_electron2.session.defaultSession;
   const sessionExtensions = session.extensions || session;
@@ -1153,6 +1156,7 @@ function getExtensionInstallStatus(state, extensionId, manifest) {
 }
 async function beginInstall({ sender, senderFrame }, state, details) {
   const extensionId = details.id;
+  if (!isExtensionId(extensionId)) return { result: Result.INVALID_ID };
   try {
     if (state.installing.has(extensionId)) {
       return { result: Result.INSTALL_IN_PROGRESS };
@@ -1231,7 +1235,7 @@ function registerWebStoreApi(webStoreState) {
       import_electron3.ipcMain.handle(channel, async function handleWebStoreIpc(event, ...args) {
         d3("received %s", channel);
         const senderOrigin = event.senderFrame?.origin;
-        if (!senderOrigin || !senderOrigin.startsWith(WEBSTORE_URL)) {
+        if (senderOrigin !== WEBSTORE_URL) {
           d3("ignoring webstore request from %s", senderOrigin);
           return;
         }
@@ -1560,7 +1564,7 @@ async function initUpdater(state) {
 // src/browser/index.ts
 function resolvePreloadPath(modulePath) {
   try {
-    return require.resolve("electron-chrome-web-store/preload");
+    return path5.join(__dirname, "web-store-preload.js");
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
       console.error(error);
