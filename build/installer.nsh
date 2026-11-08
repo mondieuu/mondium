@@ -36,11 +36,6 @@
     CreateFont $mondiumTitleFont "Segoe UI Semibold" 12 600
     CreateFont $mondiumTextFont "Segoe UI" 9 400
 
-    ; Only the close button in the title bar
-    System::Call 'user32::GetWindowLongPtrW(p $HWNDPARENT, i -16) p.r0'
-    IntOp $0 $0 & 0xFFFCFFFF
-    System::Call 'user32::SetWindowLongPtrW(p $HWNDPARENT, i -16, p r0)'
-
     ; Smaller than the template's window, still centered: width $3, height $4, reduced by $5 and $6
     System::Call '*(i,i,i,i) p.r2'
     System::Call 'user32::GetWindowRect(p $HWNDPARENT, p r2)'
@@ -55,7 +50,7 @@
     IntOp $1 $1 + $7
     IntOp $3 $3 - $5
     IntOp $4 $4 - $6
-    System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r0, i r1, i r3, i r4, i 0x34)'
+    System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r0, i r1, i r3, i r4, i 0x14)'
     StrCpy $7 1
     ${Do}
       GetDlgItem $0 $HWNDPARENT $7
