@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -92,15 +92,15 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
+      "allowElevation": false,
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Mondium",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "installerHeaderIcon": "build/icon.ico",
       "uninstallDisplayName": "Mondium",
       "include": "build/installer.nsh",
       "installerLanguages": [
