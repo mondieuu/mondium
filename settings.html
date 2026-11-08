@@ -740,6 +740,8 @@ function pickSection(id) {
   if (!link) return;
   pickedSection = id; pickedY = null;
   spy();
+  // Only the section just picked may glow: nothing stays behind when clicking through the list quickly
+  document.querySelectorAll('.glow').forEach((n) => n.classList.remove('glow'));
   glow(link);
   const h = document.getElementById(id);
   glowCard = h && h.nextElementSibling;
