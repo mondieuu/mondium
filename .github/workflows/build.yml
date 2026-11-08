@@ -104,7 +104,7 @@ jobs:
           $setup = (Get-ChildItem dist/Mondium-Setup-*.exe).FullName
           gh release download --repo $env:GITHUB_REPOSITORY --pattern 'Mondium-Setup-*.exe' --dir older
           $older = (Get-ChildItem older/Mondium-Setup-*.exe).FullName
-          .	oolsinstaller-test.ps1 $setup smoke-shots/windows-installer $older
+          ./tools/installer-test.ps1 $setup smoke-shots/windows-installer $older
           exit $LASTEXITCODE
 
       # A real update to the latest published release. Runs last: it replaces what was just tested.
