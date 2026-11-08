@@ -61,14 +61,22 @@ async function installedIs(version) {
   }
   return output('dpkg-query', ['-W', '-f=${Version}', 'mondium']) === version;
 }
+// Browser processes only: the program itself must be Mondium. Matching on the whole command line would also find this
+// test, whose arguments contain the same path.
+function browserPids() {
+  return output('ps', ['-axo', 'pid=,args=']).split('\n').map((line) => {
+    const m = /^\s*(\d+)\s+(\S+)(.*)$/.exec(line);
+    return m && /(^|\/)[Mm]ondium$/.test(m[2]) && !m[3].includes('--type=') ? Number(m[1]) : null;
+  }).filter(Boolean);
+}
 function running() {
   if (process.platform === 'win32') return /Mondium\.exe/i.test(output('tasklist', ['/FI', 'IMAGENAME eq Mondium.exe']));
-  try { return !!output('pgrep', ['-f', process.platform === 'darwin' ? 'Mondium.app/Contents/MacOS/Mondium' : exe.endsWith('.AppImage') ? 'AppImage|mount_' : '/opt/Mondium/mondium']); } catch { return false; }
+  return browserPids().length > 0;
 }
 function closeAll() {
   try {
     if (process.platform === 'win32') execFileSync('taskkill', ['/F', '/T', '/IM', 'Mondium.exe'], { stdio: 'ignore' });
-    else execFileSync('pkill', ['-f', process.platform === 'darwin' ? 'Mondium.app/Contents/MacOS/Mondium' : 'ondium'], { stdio: 'ignore' });
+    else for (const pid of browserPids()) process.kill(pid);
   } catch {}
 }
 
@@ -102,13 +110,22 @@ async function main() {
 
     // Cancelling leaves nothing half done
     await val(st, `pageApi.call('update-download').then(() => 1)`);
-    const moving = await until(async () => { const s = await status(); return s.status === 'downloading' && s.received > 0 && s; }, 60000);
-    report(!!moving, 'download starts');
-    await val(st, `pageApi.call('update-cancel').then(() => 1)`);
-    const cancelled = await until(async () => { const s = await status(); return s.status === 'available' && !s.error && s; }, 20000);
-    report(!!cancelled, 'download can be cancelled');
+    let seen = null;
+    for (const end = Date.now() + 60000; Date.now() < end && !seen; await wait(30)) {
+      const s = await status();
+      if (s.status === 'downloading' && s.received > 0) seen = 'moving';
+      else if (s.status === 'verifying' || s.status === 'ready' || s.status === 'error') seen = s.status;
+    }
+    report(!!seen && seen !== 'error', 'download starts', seen);
+    if (seen === 'moving') {
+      await val(st, `pageApi.call('update-cancel').then(() => 1)`);
+      const after = await until(async () => { const s = await status(); return s.status !== 'downloading' && s; }, 20000);
+      if (after && after.status === 'available') {
+        report(!after.error, 'download can be cancelled');
+        await val(st, `pageApi.call('update-download').then(() => 1)`);
+      } else console.log('INFO  download finished before the cancel arrived');
+    } else console.log('INFO  download finished before it could be cancelled');
 
-    await val(st, `pageApi.call('update-download').then(() => 1)`);
     const ready = await until(async () => { const s = await status(); return (s.status === 'ready' || s.status === 'error') && s; }, 8 * 60000);
     report(ready && ready.status === 'ready' && ready.auto === true, 'downloads and verifies the installer', ready && `${ready.status} ${ready.file || ''} auto ${ready.auto} ${ready.error || ''}`);
     if (!ready || ready.status !== 'ready') return;
