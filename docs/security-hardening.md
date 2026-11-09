@@ -22,9 +22,19 @@ This review fixes specific identified paths. It is not a claim that the browser 
 - **TLS:** the Certificate Transparency component is no longer disabled.
 - **Private windows:** with uBlock Origin as the engine, private requests go through the loaded uBO engines in bounded batches, without registering tabs or logs in the persistent session. This covers network rules only, not cosmetic filters or scriptlets.
 
+- **Stored data:** cookies are encrypted on disk with the system's key (DPAPI, Keychain, or the Linux keyring when there is one). Cookies saved by an older version keep working and stay unencrypted until the site sets them again. This cannot be turned off again for an existing profile. The program cannot be started as plain Node.js, and `NODE_OPTIONS` is ignored. Settings, history, the session and user scripts are saved whole, through a temp file, so a crash or two writes at once cannot leave a broken file.
+- **Permission bubble:** a click or key in the first half second is not an answer, and the Allow button never takes the keyboard by itself, so a page cannot time a bubble under the user's next click or key press. The device chooser follows the same rule. The same question asked in a loop is one bubble, and one page can queue at most four. A question ends when its tab closes or sleeps. Clearing site permissions takes effect at once.
+- **Devices:** a device chosen for one site stays closed to other sites. Incognito choices are not saved and end with the session, and saved grants do not apply in incognito.
+- **Requests the browser makes for a page:** shortcut and pinned tab icons reach only http(s), and a public page cannot aim them at local addresses, written in the URL or behind a name. These requests and the titles of unopened background tabs carry no cookies.
+- **What a page can open:** a `blob:`, `about:blank` or `data:` document has the limits of the web page that made it, and so do "open in new tab" and "save" in the right-click menu.
+- **Extensions:** cookie changes and tab addresses in events now follow the manifest too, not only call results. An extension version must be plain numbers before it becomes a folder name.
+- **Malicious sites:** a trailing dot in the host no longer gets past the list. The downloaded list can add hosts but cannot lift a block.
+- **Hover zoom:** previews follow the page's referrer policy.
+- **Fullscreen:** a page going fullscreen is named in a short notice that says how to leave, so it cannot silently pose as the browser's interface.
+
 ## Not covered
 
-Updates rest on GitHub release access, with no separate signature. The installer is not Windows Authenticode signed, and Widevine VMP signing needs a castLabs EVS account.
+Updates rest on GitHub release access, with no separate signature. The installer is not Windows Authenticode signed, and Widevine VMP signing needs a castLabs EVS account. The Mac build is ad-hoc signed, so `codesign --verify` only proves the files are intact, and macOS may ask for Keychain access for the cookie key, possibly again after an update. The volume booster runs in the page's own world inside frames, because Electron has no isolated world for a frame; its mark has a random name and a page can only affect its own sound. The icon rule looks up the name first, but the connection makes its own lookup, so DNS rebinding is narrowed and not ended. Opening the history list still reloads public icons from their sites.
 
 ## Checks before each release
 
@@ -34,4 +44,4 @@ npm audit --audit-level=moderate
 npm run check:engine
 ```
 
-`test:security` covers CRX signatures and tampering, archive limits and paths, bounded streams, user-script permissions, the domain list and download state. A clean `npm audit` does not certify the Chromium engine or custom code.
+`test:security` covers CRX signatures and tampering, archive limits and paths, bounded streams, user-script permissions, the domain list, download state and the checks in `tools/test-hardening.cjs`. `tools/smoke-test.cjs` checks the bubble, cookie encryption and the fuses in a real package. A clean `npm audit` does not certify the Chromium engine or custom code.

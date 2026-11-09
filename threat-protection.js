@@ -16,9 +16,13 @@ function hash53(text) {   // cyrb53
 }
 const FILTER = /^(@@)?\|\|([a-z0-9.-]+)\^(?:\$(?:doc|document|all))?$/;
 function eachHost(text, fn) {
+  let slash = -1;
   for (let at = 0; at < text.length;) {
     let end = text.indexOf('\n', at);
     if (end < 0) end = text.length;
+    // Most of URLhaus is rules with a path, which this layer does not use: skip them without copying the line.
+    if (slash < at) { slash = text.indexOf('/', at); if (slash < 0) slash = Infinity; }
+    if (slash < end) { at = end + 1; continue; }
     const line = text.slice(at, end).trim();
     at = end + 1;
     if (!line || line[0] === '!') continue;
@@ -34,9 +38,12 @@ function parseHosts(text) {
   eachHost(text, (host, isAllow) => (isAllow ? allow : deny).add(host));
   return { deny, allow };
 }
-function compile(texts) {
+// Exceptions come only from the bundled list. The downloaded list can add hosts but never lift a block: whoever
+// controlled that address could otherwise switch the warning off for their own sites.
+function compile(bundled, downloaded) {
   const hashes = [], allow = new Set();
-  for (const text of texts) eachHost(text, (host, isAllow) => { if (isAllow) allow.add(host); else hashes.push(hash53(host)); });
+  eachHost(bundled, (host, isAllow) => { if (isAllow) allow.add(host); else hashes.push(hash53(host)); });
+  eachHost(downloaded, (host, isAllow) => { if (!isAllow) hashes.push(hash53(host)); });
   return { deny: Float64Array.from(hashes).sort(), allow };
 }
 function has(sorted, value) {
@@ -47,19 +54,25 @@ function has(sorted, value) {
 function createThreatProtection({ root, profile, fetchImpl = fetch }) {
   const file = path.join(profile, 'malware-hosts.txt');
   const read = (f) => { try { return fs.statSync(f).size <= 16 * 1024 * 1024 ? fs.readFileSync(f, 'utf8') : ''; } catch { return ''; } };
-  const base = read(path.join(root, 'vendor', 'ublock', 'assets', 'ublock', 'badware.min.txt'));
-  const usable = (text) => { let any = false; eachHost(text, (_h, isAllow) => { if (!isAllow) any = true; }); return any; };
-  let dynamic = read(file);
-  if (!usable(dynamic)) dynamic = read(path.join(root, 'vendor', 'ublock', 'assets', 'thirdparties', 'urlhaus-filter', 'urlhaus-filter-online.txt'));
-  let sets = compile([base, dynamic]);
-  dynamic = '';   // the text is not needed once compiled
+  const bundled = () => read(path.join(root, 'vendor', 'ublock', 'assets', 'ublock', 'badware.min.txt'));
+  const usable = (text) => /^(?:\|\|)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\^\S*)?\s*$/m.test(text);   // stops at the first host, unlike a full parse
+  // Built at the first web address and not during startup: the new tab page and local files never need it. Texts are not kept.
+  let sets = null;
+  const lists = () => {
+    if (sets) return sets;
+    let dynamic = read(file);
+    if (!usable(dynamic)) dynamic = read(path.join(root, 'vendor', 'ublock', 'assets', 'thirdparties', 'urlhaus-filter', 'urlhaus-filter-online.txt'));
+    return (sets = compile(bundled(), dynamic));
+  };
   const walk = (host, test) => { for (let h = host; h.includes('.'); h = h.slice(h.indexOf('.') + 1)) if (test(h)) return true; return false; };
   return {
     isBlocked(url) {
       try {
         const u = new URL(url);
         if (!/^https?:$/.test(u.protocol)) return false;
-        return !walk(u.hostname, (h) => sets.allow.has(h)) && walk(u.hostname, (h) => has(sets.deny, hash53(h)));
+        const host = u.hostname.replace(/\.$/, '');   // "bad.example." is the same site as "bad.example"
+        const { allow, deny } = lists();
+        return !walk(host, (h) => allow.has(h)) && walk(host, (h) => has(deny, hash53(h)));
       } catch { return false; }
     },
     async refresh() {
@@ -71,7 +84,7 @@ function createThreatProtection({ root, profile, fetchImpl = fetch }) {
         fs.mkdirSync(profile, { recursive: true });
         await fs.promises.writeFile(file + '.tmp', text);
         await fs.promises.rename(file + '.tmp', file);
-        sets = compile([base, text]);
+        sets = compile(bundled(), text);
         return true;
       } catch { return false; }
     }

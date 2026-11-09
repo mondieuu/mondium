@@ -34,7 +34,7 @@
       if (el !== root && (BAD_CLASS.test(el.className && el.className.baseVal === undefined ? el.className : '') || BAD_CLASS.test(el.id || ''))) {
         if ((el.textContent || '').length < 600) { el.remove(); continue; }
       }
-      if (!KEEP.has(el.tagName)) {   // turn unknown elements into a plain container, keeping content
+      if (!KEEP.has(el.tagName) && el !== root) {   // turn unknown elements into a plain container, keeping content
         const span = document.createElement('div');
         while (el.firstChild) span.appendChild(el.firstChild);
         if (el.parentNode) el.parentNode.replaceChild(span, el);
@@ -58,7 +58,10 @@
     for (const el of [...root.querySelectorAll('div, span, section')].reverse()) {
       if (!el.textContent.trim() && !el.querySelector('img')) el.remove();
     }
-    return root;
+    if (KEEP.has(root.tagName)) return root;
+    const box = document.createElement('div');   // the best container can be <main> or <body>
+    while (root.firstChild) box.appendChild(root.firstChild);
+    return box;
   };
   const body = clean(best);
 

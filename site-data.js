@@ -330,6 +330,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
 
   const RANGE_MS = { hour: 3600e3, day: 864e5, week: 7 * 864e5, month: 28 * 864e5 };
   const STORAGE_TYPES = 'file_systems,indexeddb,local_storage,service_workers,cache_storage,storage_buckets,shared_storage';
+  const RANGE_STORAGE_TYPES = STORAGE_TYPES.replace('local_storage,', '');   // the engine keeps no time for localStorage
 
   // Clearing. opts: { cookies, siteData, protect, range: 'all'|'hour'|'day'|'week'|'month', onlySite? }
   // onlySite: delete a single site from the list (explicit user choice; protection does not apply to it).
@@ -374,7 +375,7 @@ function createSiteData({ getSession, getProtected, setProtected, openTabUrls, m
               await cdp('Network.deleteCookies', { name: it.name, domain: it.domain, path: it.path, ...(it.partitionKey ? { partitionKey: it.partitionKey } : {}) });
               sentCookies++;
             } else {
-              await cdp('Storage.clearDataForStorageKey', { storageKey: it.key, storageTypes: STORAGE_TYPES });
+              await cdp('Storage.clearDataForStorageKey', { storageKey: it.key, storageTypes: range === 'all' ? STORAGE_TYPES : RANGE_STORAGE_TYPES });
               sentKeys++;
             }
           } catch (e) {

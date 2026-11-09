@@ -17,7 +17,7 @@ if (process.platform === 'win32') {
   const target = path.join(dir, 'Mondium.exe');
   const stampFile = target + '.surum';
   const icon = path.join(root, 'build', 'icon.ico');
-  stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs, 'fuses1'].join('|');
+  stamp = [fs.statSync(electronExe).size, fs.statSync(electronExe).mtimeMs, fs.statSync(icon).mtimeMs, 'fuses2'].join('|');
   try {
     if (!fs.existsSync(target) || !fs.existsSync(stampFile) || fs.readFileSync(stampFile, 'utf8') !== stamp) {
       console.log('Preparing Mondium.exe (one time)...');
@@ -56,10 +56,10 @@ function start() {
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!child.killed) child.kill(sig); });
 }
 
-// Same fuse as the installer build (package.json build.electronFuses), so development matches what users get.
+// Same fuses as the installer build (package.json build.electronFuses), so development matches what users get.
 if (needsFuses) {
   const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses');
-  flipFuses(exe, { version: FuseVersion.V1, [FuseV1Options.GrantFileProtocolExtraPrivileges]: false })
+  flipFuses(exe, { version: FuseVersion.V1, [FuseV1Options.GrantFileProtocolExtraPrivileges]: false, [FuseV1Options.EnableCookieEncryption]: true, [FuseV1Options.RunAsNode]: false, [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false })
     .then(() => { fs.writeFileSync(exe + '.surum', stamp); start(); })
     .catch((e) => { console.error('Could not set the Electron fuses:', e.message); process.exit(1); });
 } else start();

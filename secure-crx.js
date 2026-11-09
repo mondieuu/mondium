@@ -33,4 +33,6 @@ function extractZip(buffer,destination) {
  fs.mkdirSync(root,{recursive:true});if(fs.lstatSync(root).isSymbolicLink())throw Error('Unsafe destination');
  for(const {e,target,size}of files){let parent=root;const dirs=path.relative(root,e.isDirectory?target:path.dirname(target)).split(path.sep).filter(Boolean);for(const d of dirs){parent=path.join(parent,d);if(fs.existsSync(parent)){if(!fs.lstatSync(parent).isDirectory()||fs.lstatSync(parent).isSymbolicLink())throw Error('Unsafe destination directory');}else fs.mkdirSync(parent,{mode:0o755});}if(!e.isDirectory){const data=e.getData();if(data.length!==size||data.length>MAX_FILE)throw Error('Archive size mismatch');fs.writeFileSync(target,data,{flag:'wx',mode:0o644});}}
 }
-module.exports={parseCrx,extractZip,idOf,MAX_CRX};
+// The installer builds a folder name from this field of the package, so "../../x" must never reach a path join.
+function assertExtensionVersion(version){if(typeof version!=='string'||!/^\d{1,9}(\.\d{1,9}){0,3}$/.test(version))throw Error('Invalid extension version');}
+module.exports={parseCrx,extractZip,idOf,MAX_CRX,assertExtensionVersion};

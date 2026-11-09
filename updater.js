@@ -300,7 +300,7 @@ function createUpdater({ app, session, shell, getSettings, save, onChange, confi
         if (appDir && env.LD_LIBRARY_PATH) env.LD_LIBRARY_PATH = env.LD_LIBRARY_PATH.split(':').filter((p) => p && !p.startsWith(appDir)).join(':');
         pending = { cmd: '/bin/sh', args: ['-c', SWAP_APPIMAGE, 'mondium-update', String(process.pid), install.file, st.stage], env, cwd: path.dirname(install.file) };
       } else if (install.type === 'deb') {
-        if (!await installDeb(st.file)) return;
+        if (!await installDeb(st.file)) { getSettings().restoreOnce = false; save(); return; }   // no restart after all
         app.relaunch();
       }
       app.quit();

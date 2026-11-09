@@ -1046,6 +1046,7 @@ async function downloadExtensionFromURL(url, extensionsDir, expectedExtensionId)
     if (!manifest.version) {
       throw new Error("Installed extension is missing manifest version");
     }
+    require('../secure-crx').assertExtensionVersion(manifest.version);
     const versionedPath = path3.join(extensionsDir, crx.extensionId, `${manifest.version}_0`);
     await fs2.promises.rename(unpackedPath, versionedPath);
     return versionedPath;

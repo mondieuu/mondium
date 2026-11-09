@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ipcMain, webContents } = require('electron');
+const { writeFileAtomic } = require('./safe-write');
 
 const DEFAULT_CSP = "script-src 'self' 'unsafe-eval'";
 const WORLD_BASE = 1200;
@@ -39,7 +40,7 @@ function setupUserScripts({ ses, storeFile }) {
   let reg = {};
   try { reg = JSON.parse(fs.readFileSync(storeFile, 'utf8')) || {}; } catch {}
   let saveTimer = null;
-  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.promises.writeFile(storeFile, JSON.stringify(reg)).catch(() => {}), 500); };
+  const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => writeFileAtomic(storeFile, JSON.stringify(reg)).catch(() => {}), 500); };
   const entry = (extId) => (reg[extId] = reg[extId] || { world: {}, scripts: [] });
 
   const codeCache = new Map();   // file path -> code

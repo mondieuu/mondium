@@ -146,7 +146,9 @@ const SVG = {
   del: '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>'
 };
 const LETTER_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#9334e6', '#c5221f', '#007b83', '#b06000', '#3c4043', '#a142f4'];
-let data = { shortcuts: [], searchUrl: decodeURIComponent(location.hash.slice(1)) || 'https://www.google.com/search?pws=0&q=', searchName: 'Google', theme: null };
+// The main process puts the search address in the hash. Only a web address counts: a link to this page must not choose where the search box goes.
+const initialSearch = (hash) => { try { const u = decodeURIComponent(hash); return /^https:\/\//i.test(u) ? u : ''; } catch { return ''; } };
+let data = { shortcuts: [], searchUrl: initialSearch(location.hash.slice(1)) || 'https://www.google.com/search?pws=0&q=', searchName: 'Google', theme: null };
 const MAX = 12;
 
 // ---------- Search

@@ -30,6 +30,8 @@ const { createUpdater } = require('./updater');
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
 const { guardExtensionRouter } = require('./extension-guard');
+const { mayFetchForPage, mayFetchAfterLookup } = require('./net-rules');
+const { writeFileAtomic, writeFileAtomicSync, sweepTempFiles } = require('./safe-write');
 
 // Separate profile folder for tests: does not touch the user's running Mondium or data (single-instance lock is per folder too)
 if (process.env.MONDIUM_PROFILE) app.setPath('userData', process.env.MONDIUM_PROFILE);
@@ -117,8 +119,9 @@ if (!settings.isolationSecurityMigration) { settings.strictIsolation = true; set
 let saveTimer = null;
 function saveSettings(now = false) {
   clearTimeout(saveTimer);
-  const write = () => { try { fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true }); fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch (e) { console.warn('Could not save settings:', e.message); } };
-  if (now) write(); else saveTimer = setTimeout(write, 300);
+  const failed = (e) => console.warn('Could not save settings:', e.message);
+  const folder = path.dirname(SETTINGS_FILE);
+  if (now) { try { fs.mkdirSync(folder, { recursive: true }); writeFileAtomicSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); } catch (e) { failed(e); } } else saveTimer = setTimeout(() => { fsp.mkdir(folder, { recursive: true }).then(() => writeFileAtomic(SETTINGS_FILE, JSON.stringify(settings, null, 2))).catch(failed); }, 300);
 }
 // Once on old installs: the user wanted site logins to persist; Google clearing is turned off
 if (!settings.keepLoginsSet) { settings.clearGoogleOnExit = false; settings.keepLogins = true; settings.keepLoginsSet = true; saveSettings(true); }
@@ -225,8 +228,9 @@ const listTimers = {};
 function writeList(f, data, now) {
   clearTimeout(listTimers[f]);
   const json = () => JSON.stringify(data());
-  if (now) { try { fs.writeFileSync(f, json()); } catch (e) { console.warn('Could not write:', f, e.message); } return; }
-  listTimers[f] = setTimeout(() => { fsp.writeFile(f, json()).catch((e) => console.warn('Could not write:', f, e.message)); }, 2000);
+  const failed = (e) => console.warn('Could not write:', f, e.message);
+  if (now) { try { writeFileAtomicSync(f, json()); } catch (e) { failed(e); } return; }
+  listTimers[f] = setTimeout(() => { writeFileAtomic(f, json()).catch(failed); }, 2000);
 }
 const saveHistory = (now = false) => writeList(HISTORY_FILE, () => history, now);
 const saveDownloads = (now = false) => writeList(DOWNLOADS_FILE, () => downloads.filter((d) => !d.incognito).map(({ item, ...d }) => d), now);
@@ -428,6 +432,7 @@ const uiHeight = () => (htmlFullscreen ? 0
 
 // ---------------------------------------------------------------- Ad blocker
 const listSet = new Set(CONFIG.filterLists);
+let listFailures = 0;
 const safeFetch = async (url, opts) => {
   if (url === CUSTOM_LIST_URL) return new Response(CUSTOM_FILTERS);
   const doFetch = net && net.fetch ? net.fetch.bind(net) : fetch;
@@ -437,6 +442,7 @@ const safeFetch = async (url, opts) => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r;
   } catch (e) {
+    listFailures++;
     console.warn('List skipped:', url, e.message);
     return new Response('');
   }
@@ -449,9 +455,12 @@ const engineCache = () => path.join(app.getPath('userData'), 'filtre-motoru-v3.b
 const oldEngineCache = () => path.join(app.getPath('userData'), 'filtre-motoru-v2.bin');   // used until the new one is built
 
 async function buildBlocker() {
+  listFailures = 0;
   const b = await ElectronBlockerLazy().fromLists(safeFetch, CONFIG.filterLists, {
     enableCompression: true, loadCosmeticFilters: true, loadNetworkFilters: true
   });
+  // Offline, the lists come back empty: an engine built from them must not replace a working one.
+  if (listFailures > CONFIG.filterLists.length / 2) throw new Error('Most filter lists are unreachable');
   await fsp.writeFile(engineCache(), b.serialize());
   fsp.rm(oldEngineCache(), { force: true }).catch(() => {});
   return b;
@@ -826,14 +835,21 @@ function extPermissionRows(m) {
   if (!rows.length) rows.push({ icon: 'check', text: 'Özel izin gerektirmiyor' });
   return rows;
 }
-const prompts = [];   // { id, w, data, resolve, shown }
+const prompts = [];   // { id, w, data, resolve, answer, shown }
+const MAX_PROMPTS_PER_PAGE = 4;
 let promptSeq = 1;
+// A page can ask in a loop, or try sms: and tel: links one after another, and each bubble covers the window until it is answered.
+// So the same question is one bubble with one answer, and one page cannot queue more than a few.
 function askPrompt(data, owner) {
-  return new Promise((resolve) => {
-    const p = { id: promptSeq++, w: W, data, resolve, shown: false, owner };
-    prompts.push(p);
-    if (!prompts.some((x) => x !== p && x.w === p.w)) showPrompt(p);
-  });
+  const same = owner && data.key ? prompts.find((x) => x.owner === owner && x.data.key === data.key) : null;
+  if (same) return same.answer;
+  if (owner && prompts.filter((x) => x.owner === owner).length >= MAX_PROMPTS_PER_PAGE) return Promise.resolve('dismiss');
+  let resolve;
+  const answer = new Promise((r) => { resolve = r; });
+  const p = { id: promptSeq++, w: W, data, resolve, answer, shown: false, owner };
+  prompts.push(p);
+  if (!prompts.some((x) => x !== p && x.w === p.w)) showPrompt(p);
+  return answer;
 }
 function showPrompt(p) {
   inWin(p.w, () => {
@@ -886,6 +902,7 @@ function endIncognito() {
   incognitoSes.clearStorageData().catch(() => {});
   incognitoSes.clearCache().catch(() => {});
   for (const k of Object.keys(incognitoPerms)) delete incognitoPerms[k];
+  incognitoDeviceIds.clear();
   for (let i = downloads.length - 1; i >= 0; i--) if (downloads[i].incognito && downloads[i].state !== 'progressing') downloads.splice(i, 1);
 }
 
@@ -944,7 +961,7 @@ function setupSession(ses = mainSes, incognito = false) {
     let want = PERM_TEXT[permission];
     if (media) want = mediaText({ mediaTypes: media.filter((m) => open.includes(`${origin}|${m}`)) });
     if (scheme) want = { ...want, text: `${want.text} (${scheme}:)` };
-    askPrompt({ host: hostOf(origin), title: `${hostOf(origin)} şunu istiyor:`, rows: [].concat(want), ok: 'İzin ver', cancel: 'Engelle', kind: 'perm' }, wc).then((r) => {
+    askPrompt({ key: `${origin}|${open.join()}`, host: hostOf(origin), title: `${hostOf(origin)} şunu istiyor:`, rows: [].concat(want), ok: 'İzin ver', cancel: 'Engelle', kind: 'perm' }, wc).then((r) => {
       if (r !== 'dismiss' && !(r === 'ok' && permission === 'display-capture')) { for (const key of open) perms[key] = r === 'ok'; if (!incognito) saveSettings(); }
       cb(r === 'ok');
     });
@@ -962,7 +979,7 @@ function setupSession(ses = mainSes, incognito = false) {
     return permission !== 'notifications';
   });
 
-  setupDevices(ses);
+  setupDevices(ses, incognito);
   if (incognito) ensureIncognitoBlock(ses);   // the main session is decided by startBlocking()
 
   // Downloads: straight to the Downloads folder
@@ -1018,7 +1035,8 @@ function notifyDownload(d) {
 
 // ---------------------------------------------------------------- Device support (WebHID / WebUSB / Serial / Bluetooth)
 // Used by sites like ATK, VIA, Razer/Logitech web drivers, Arduino web uploader, ESP web flasher.
-const sessionDeviceIds = new Set();   // devices chosen in this session
+const sessionDeviceIds = new Set();   // "origin|device" pairs chosen in this session: a device chosen for one site stays closed to the others
+const incognitoDeviceIds = new Set();   // the same for incognito windows, which keep no record and do not use saved grants
 const hex4 = (n) => (typeof n === 'number' ? n.toString(16).padStart(4, '0') : String(n || '').replace(/^0x/i, '')).toUpperCase();
 const sameDevice = (g, type, origin, d) => g.type === type && g.origin === origin &&
   hex4(g.vendorId) === hex4(d.vendorId) && hex4(g.productId) === hex4(d.productId) &&
@@ -1081,13 +1099,15 @@ function frameOrigin(details, fallbackWc) {
 }
 
 const wcOfFrame = (f) => { try { return f ? webContents.fromFrame(f) : null; } catch { return null; } };
-function setupDevices(ses) {
+function setupDevices(ses, incognito = false) {
+  const chosen = incognito ? incognitoDeviceIds : sessionDeviceIds;
+  const remember = (type, origin, entry) => { chosen.add(`${origin}|${entry.id}`); if (!incognito) addGrant(type, origin, entry.raw); };
   // ---- WebHID (ATK, VIA, gaming mouse/keyboard software)
   ses.on('select-hid-device', (event, details, callback) => {
     event.preventDefault();
     const origin = frameOrigin(details);
     openChooser('hid', origin, (details.deviceList || []).map(hidInfo), wcOfFrame(details.frame)).then((entry) => {
-      if (entry) { sessionDeviceIds.add(entry.id); addGrant('hid', origin, entry.raw); }
+      if (entry) remember('hid', origin, entry);
       callback(entry ? entry.id : '');
     });
   });
@@ -1099,7 +1119,7 @@ function setupDevices(ses) {
     event.preventDefault();
     const origin = frameOrigin(details);
     openChooser('usb', origin, (details.deviceList || []).map(usbInfo), wcOfFrame(details.frame)).then((entry) => {
-      if (entry) { sessionDeviceIds.add(entry.id); addGrant('usb', origin, entry.raw); }
+      if (entry) remember('usb', origin, entry);
       callback(entry ? entry.id : undefined);
     });
   });
@@ -1111,7 +1131,7 @@ function setupDevices(ses) {
     event.preventDefault();
     const origin = frameOrigin(null, wc);
     openChooser('serial', origin, (portList || []).map(serialInfo), wc).then((entry) => {
-      if (entry) { sessionDeviceIds.add(entry.id); addGrant('serial', origin, entry.raw); }
+      if (entry) remember('serial', origin, entry);
       callback(entry ? entry.id : '');
     });
   });
@@ -1121,8 +1141,9 @@ function setupDevices(ses) {
   // ---- Previously allowed devices (remembered across page reloads / browser restarts)
   ses.setDevicePermissionHandler((details) => {
     const d = details.device || {};
-    if (sessionDeviceIds.has(d.deviceId) || sessionDeviceIds.has(d.portId)) return true;
-    return settings.deviceGrants.some((g) => sameDevice(g, details.deviceType, details.origin, d));
+    const origin = originOf(details.origin);
+    if (chosen.has(`${origin}|${d.deviceId}`) || chosen.has(`${origin}|${d.portId}`)) return true;
+    return !incognito && settings.deviceGrants.some((g) => sameDevice(g, details.deviceType, details.origin, d));
   });
 
   // ---- Bluetooth pairing (PIN confirmation)
@@ -1171,7 +1192,8 @@ function registerExtensionTab(wc, w) {
   } finally { extensionTabRegistrationDepth--; }
 }
 // Web pages open web pages. Chromium blocks data: and internal addresses for a page, and newTab would load them as the browser itself.
-const webMayOpen = (opener, url) => !/^https?:/i.test(opener || '') || /^(https?:|blob:|about:blank$)/i.test(url || '');
+// A blob:, about:blank or data: document belongs to the web page that made it, so only local files and extension pages may open more.
+const webMayOpen = (opener, url) => /^(file|chrome-extension):/i.test(opener || '') || /^(https?:|blob:|about:blank$)/i.test(url || '');
 // window.open's feature string also sets these: a page must not make an always-on-top window the user cannot close.
 const POPUP_OPTIONS = {
   width: 520, height: 680, autoHideMenuBar: true, webPreferences: { sandbox: true },
@@ -1280,7 +1302,7 @@ function createView(tab) {
   on('dom-ready', () => { if (settings.hoverZoom) applyHoverZoom(wc); });
   // While volume boost is on, apply it to newly loaded pages and embedded players too
   on('did-frame-finish-load', (_e, isMain, pid, rid) => {
-    if ((tab.volume || 100) === 100) return;
+    if ((tab.volume ?? 100) === 100) return;
     applyVolume(wc, isMain ? null : webFrameMain.fromId(pid, rid), tab.volume);
   });
   on('render-process-gone', () => { tab.title = 'Sayfa çöktü - yenileyin'; tab.loading = false; pushState(); });
@@ -1288,10 +1310,10 @@ function createView(tab) {
   on('context-menu', (_e, p) => showContextMenu(wc, p));
   on('found-in-page', (_e, r) => send('found', { active: r.activeMatchOrdinal, total: r.matches }));
   // A video's fullscreen ends where it began: a window the user made fullscreen stays fullscreen.
-  on('enter-html-full-screen', () => { W.fullBeforeVideo = win.isFullScreen(); htmlFullscreen = true; win.setFullScreen(true); layout(); });
+  on('enter-html-full-screen', () => { W.fullBeforeVideo = win.isFullScreen(); htmlFullscreen = true; win.setFullScreen(true); showFullscreenNotice(wc); layout(); });
   on('leave-html-full-screen', () => { htmlFullscreen = false; win.setFullScreen(!!W.fullBeforeVideo); layout(); });
   const wcId = wc.id;
-  on('destroyed', () => { if (byWcId.get(wcId) === tab) byWcId.delete(wcId); blockedNavigations.delete(wcId); });
+  on('destroyed', () => { dismissPromptsOf(wc); if (byWcId.get(wcId) === tab) byWcId.delete(wcId); blockedNavigations.delete(wcId); });
   return view;
 }
 
@@ -1391,7 +1413,7 @@ async function readTabTitle(tab) {
   const url = tab.url;
   let reader;
   try {
-    const response = await tab.w.ses.fetch(url, { signal: controller.signal });
+    const response = await tab.w.ses.fetch(url, { credentials: 'omit', signal: controller.signal });   // session.fetch sends cookies unless told not to
     if (!response.ok || !/text\/html|application\/xhtml/i.test(response.headers.get('content-type') || '')) return;
     reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1525,7 +1547,8 @@ async function updateIconColor(tab) {
           if (/;base64,/i.test(url)) assertImageLimits(Buffer.from(encoded, 'base64'));
           image = nativeImage.createFromDataURL(url);
         } else {
-          const r = await tab.w.ses.fetch(url, { signal: AbortSignal.timeout(4000) });
+          if (!await mayFetchAfterLookup(tab.w.ses, tab.url, url)) return null;
+          const r = await tab.w.ses.fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(4000) });
           if (!r.ok || Number(r.headers.get('content-length')) > 128 * 1024) return null;
           const bytes = await readResponseBytes(r, 128 * 1024);
           imageData = 'data:' + (r.headers.get('content-type') || 'image/x-icon').split(';')[0] + ';base64,' + Buffer.from(bytes).toString('base64');
@@ -1598,10 +1621,12 @@ function toggleMute(id) {
 const VOLUME_STEPS = [25, 50, 75, 100, 150, 200, 300, 400, 600];   // tab context menu
 const VOLUME_MAX = 600;
 let VOLUME_JS = null;
+// Frames run this in the page's own world (Electron has no isolated world for a frame), so the mark it keeps has a random name.
+const VOLUME_KEY = Math.random().toString(36).slice(2);
 function applyVolume(wc, frame, pct) {
   if (!wc || wc.isDestroyed() || !/^https?:/i.test(wc.getURL())) return;
   if (!VOLUME_JS) VOLUME_JS = fs.readFileSync(path.join(__dirname, 'volume.js'), 'utf8');   // read on first use
-  const code = `{ const GAIN = ${pct / 100};\n${VOLUME_JS}\n}`;   // block scope: avoids "already defined" errors when run again
+  const code = `{ const GAIN = ${pct / 100}; const KEY_NAME = '${VOLUME_KEY}';\n${VOLUME_JS}\n}`;   // block scope: avoids "already defined" errors when run again
   if (frame) { frame.executeJavaScript(code, true).catch(() => {}); return; }
   wc.executeJavaScriptInIsolatedWorld(1013, [{ code }], true).catch(() => {});
   for (const f of wc.mainFrame ? wc.mainFrame.framesInSubtree : []) {
@@ -1698,17 +1723,31 @@ function toggleBookmarksBar() { settings.bookmarksBar = !settings.bookmarksBar; 
 
 // ---------------------------------------------------------------- Layout and UI state
 const vertical = () => !!settings.verticalTabs && !htmlFullscreen;
+// A fullscreen page hides the address bar and could draw a fake one, so it starts with a short notice of who it is and how to leave.
+const FULLSCREEN_NOTICE_HEIGHT = 64, FULLSCREEN_NOTICE_MS = 4000;
+function showFullscreenNotice(wc) {
+  const w = W;
+  clearTimeout(w.fullscreenNoticeTimer);
+  w.fullscreenNotice = hostOf(wc.getURL()) || wc.getURL();
+  pushState();
+  w.fullscreenNoticeTimer = setTimeout(() => {
+    w.fullscreenNotice = null;
+    if (windows.includes(w)) inWin(w, () => { pushState(); layout(); });
+  }, FULLSCREEN_NOTICE_MS);
+}
 function layout() {
   if (!win || !ui) return;
   // Full-page F11 and HTML fullscreen: the page takes the whole window, the browser UI is hidden.
   // On macOS the green window button also enters fullscreen and the tabs must stay there, as in other Mac browsers.
   const fullscreen = htmlFullscreen || (!isMac && win.isFullScreen());
-  ui.setVisible(!fullscreen);
+  const notice = fullscreen && htmlFullscreen && W && W.fullscreenNotice;
+  ui.setVisible(!fullscreen || !!notice);
   if (fullscreen) {
     const { width, height } = win.getContentBounds();
-    ui.setBounds({ x: 0, y: 0, width, height: 0 });
+    ui.setBounds({ x: 0, y: 0, width, height: notice ? FULLSCREEN_NOTICE_HEIGHT : 0 });
     const t = activeTab();
     if (t?.view) { t.view.setBounds({ x: 0, y: 0, width, height }); win.contentView.addChildView(t.view); if (W) W.uiAbove = false; }
+    if (notice) { win.contentView.addChildView(ui); if (W) W.uiAbove = true; }   // uiAbove: the vertical layout puts the page back on top afterwards
     return;
   }
   const { width, height } = win.getContentBounds();
@@ -1811,7 +1850,7 @@ function pushState() {
   send('state', {
     tabs: tabs.map((x) => ({
       id: x.id, title: x.title, favicon: x.favicon, loading: x.loading && !!x.view,
-      iconColor: x.iconColor || null, sleeping: !x.view || !!x.pendingNavigation, audible: x.audible, pinned: !!x.pinned, muted: !!x.muted, volume: x.volume || 100
+      iconColor: x.iconColor || null, sleeping: !x.view || !!x.pendingNavigation, audible: x.audible, pinned: !!x.pinned, muted: !!x.muted, volume: x.volume ?? 100
     })),
     activeId,
     activeWcId: wc ? wc.id : -1,
@@ -1825,8 +1864,9 @@ function pushState() {
     windows: windows.length,
     extSupport: !!extensions && !W.incognito,
     hiddenExt: settings.hiddenExtensions,
-    volume: t ? (t.volume || 100) : 100,
+    volume: t ? (t.volume ?? 100) : 100,
     canVolume: !!t && /^https?:/i.test(t.url),
+    fullscreenNotice: (htmlFullscreen && W.fullscreenNotice) || null,
     url: t ? displayUrl(t.url) : '',
     loading: t ? t.loading : false,
     canBack: wc ? (nav ? nav.canGoBack() : wc.canGoBack()) : false,
@@ -2791,8 +2831,8 @@ function showTabMenu(arg) {
     ...(settings.tabAudio ? [{ label: t.muted ? 'Sitenin sesini aç' : 'Sitenin sesini kapat', click: () => toggleMute(t.id) }] : []),
     { label: settings.verticalTabs ? 'Yatay sekmelere geç' : 'Dikey sekmelere geç', click: () => setVerticalTabs(!settings.verticalTabs) },
     ...(settings.verticalTabs ? [{ label: 'Kenar çubuğunu otomatik gizle', type: 'checkbox', checked: !!settings.verticalAutoHide, ...hint('Ctrl+S'), click: () => toggleAutoHide() }] : []),
-    ...([{ label: 'Ses seviyesi (%' + (t.volume || 100) + ')', enabled: /^https?:/i.test(t.url), submenu: VOLUME_STEPS.map((v) => ({
-      label: '%' + v + (v === 100 ? ' (normal)' : ''), type: 'radio', checked: (t.volume || 100) === v, click: () => setVolume(t.id, v)
+    ...([{ label: 'Ses seviyesi (%' + (t.volume ?? 100) + ')', enabled: /^https?:/i.test(t.url), submenu: VOLUME_STEPS.map((v) => ({
+      label: '%' + v + (v === 100 ? ' (normal)' : ''), type: 'radio', checked: (t.volume ?? 100) === v, click: () => setVolume(t.id, v)
     })) }]),
     { label: 'Yer işareti koy', enabled: !isNewtab(t.url) && !isBookmarked(t.url), click: () => { settings.bookmarks.push({ url: t.url, title: t.title, favicon: t.favicon }); saveSettings(); pushState(); } },
     { type: 'separator' },
@@ -2807,13 +2847,16 @@ function showTabMenu(arg) {
 function showContextMenu(wc, p) {
   const items = [];
   if (p.linkURL) {
-    items.push({ label: 'Bağlantıyı yeni sekmede aç', click: () => newTab(p.linkURL, true, activeId) });
-    items.push({ label: 'Bağlantıyı farklı kaydet...', click: () => wc.downloadURL(p.linkURL) });
+    // The menu acts as the browser, so a link on a web page gets the page's limits: no file: address or Windows share from a right-click.
+    if (webMayOpen(wc.getURL(), p.linkURL)) {
+      items.push({ label: 'Bağlantıyı yeni sekmede aç', click: () => newTab(p.linkURL, true, activeId) });
+      items.push({ label: 'Bağlantıyı farklı kaydet...', click: () => wc.downloadURL(p.linkURL) });
+    }
     items.push({ label: 'Bağlantı adresini kopyala', click: () => clipboard.writeText(p.linkURL) });
     items.push({ type: 'separator' });
   }
   if (p.mediaType === 'image' && p.srcURL) {
-    items.push({ label: 'Resmi yeni sekmede aç', click: () => newTab(p.srcURL, true, activeId) });
+    if (webMayOpen(wc.getURL(), p.srcURL) || /^data:image\/(?!svg)/i.test(p.srcURL)) items.push({ label: 'Resmi yeni sekmede aç', click: () => newTab(p.srcURL, true, activeId) });
     items.push({ label: 'Resmi kaydet', click: () => wc.downloadURL(p.srcURL) });
     items.push({ label: 'Resmi kopyala', click: () => wc.copyImageAt(p.x, p.y) });
     items.push({ label: 'Resim adresini kopyala', click: () => clipboard.writeText(p.srcURL) });
@@ -3019,7 +3062,8 @@ function historyList(arg) {
       if (!q.every((w) => hay.includes(w))) continue;
     }
     if (items.length >= limit) { more = true; break; }
-    items.push({ t: h.t, url: h.url, title: h.title || '', favicon: h.favicon || null });
+    // Opening this list reloads the icons, so an address a public page chose must not point at the local network.
+    items.push({ t: h.t, url: h.url, title: h.title || '', favicon: h.favicon && (h.favicon.startsWith('data:') || mayFetchForPage(h.url, h.favicon)) ? h.favicon : null });
   }
   return { items, more, total: history.length };
 }
@@ -3219,7 +3263,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
       }
       case 'bm-import-html': return importBookmarksHtml();
       case 'bm-group-remove': return removeBookmarkGroup(String(arg || ''));
-      case 'site-perms': settings.sitePerms = {}; saveSettings(true); notifyPages('settings'); return { ok: true };
+      case 'site-perms': for (const key of Object.keys(settings.sitePerms)) delete settings.sitePerms[key]; saveSettings(true);   // the permission handlers keep this object notifyPages('settings'); return { ok: true };
       case 'device-grants': showDeviceGrants(); return { ok: true };
       case 'update-filters': forceUpdateFilters(); return { ok: true };
       case 'ubo-dashboard': if (uboId) newTab(uboPage('dashboard.html')); return { ok: true };
@@ -3324,6 +3368,7 @@ ipcMain.handle('page', async (e, cmd, arg) => {
     case 'newtab-clock': if (kind === 'newtab' && arg) { setNewtabClock(arg); notifyPages('settings'); } return { ok: true };
     case 'welcome-done': {
       settings.firstRunDone = true;
+      settings.languageSet = true;   // otherwise the next start takes this for an old Turkish-only install
       saveSettings(true);
       const t = tabs.find((x) => x.view && x.view.webContents === e.sender);
       if (t) { t.url = newtabUrl(); t.title = 'Yeni Sekme'; go(t.view.webContents, t.url); const w = W; setTimeout(() => inWin(w, () => focusUrl()), 300); }
@@ -3341,11 +3386,17 @@ async function fetchSiteIcon(pageUrl) {
   };
   let base;
   try { base = new URL(pageUrl); } catch { return null; }
+  // The page's HTML chooses these addresses: no local files, no Windows shares (they send the user's sign-in), no local network for a public site.
+  const start = base.href;
+  const allowed = (u) => mayFetchForPage(start, u) && !threatProtection.isBlocked(u);
+  if (!allowed(start)) return null;
   const cands = [];
   try {
+    if (!await mayFetchAfterLookup(session.defaultSession, start, start)) return null;
     const r = await fetchT(base.href);
     if (r.ok && /html/i.test(r.headers.get('content-type') || '')) {
       base = new URL(r.url || base.href);
+      if (!allowed(base.href)) return null;
       const html = (await readResponseBytes(r, 400000)).toString('utf8');
       for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
         const tag = m[0];
@@ -3357,7 +3408,7 @@ async function fetchSiteIcon(pageUrl) {
         // 64-192 px is best; very large icons waste space
         let score = rel.includes('apple-touch') ? 180 : size || (/\.svg(\?|$)/i.test(href) ? 160 : 32);
         if (score > 256) score = 256 - (score - 256) / 10;
-        try { cands.push({ href: new URL(href.replace(/&amp;/g, '&'), base).href, score }); } catch {}
+        try { const to = new URL(href.replace(/&amp;/g, '&'), base).href; if (allowed(to)) cands.push({ href: to, score }); } catch {}
       }
     }
   } catch { /* site didn't load; favicon.ico will be tried */ }
@@ -3365,6 +3416,7 @@ async function fetchSiteIcon(pageUrl) {
   cands.push({ href: new URL('/favicon.ico', base).href, score: 0 });
   for (const c of cands.slice(0, 4)) {
     try {
+      if (!await mayFetchAfterLookup(session.defaultSession, start, c.href)) continue;
       const r = await fetchT(c.href);
       if (!r.ok) continue;
       let type = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
@@ -3561,6 +3613,7 @@ app.whenReady().then(async () => {
   setInterval(sleepIdleTabs, 60e3);
   setInterval(keepSessionCookies, 15 * 60e3);
   updater.start();
+  sweepTempFiles(app.getPath('userData'));
 });
 
 // On quit: write settings, clear Google data

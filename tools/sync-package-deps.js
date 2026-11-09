@@ -22,6 +22,6 @@ const names = new Set();
 const file = path.join(root, 'package.json');
 const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
 const others = (pkg.build.extraResources || []).filter((x) => x.from !== 'node_modules');
-pkg.build.extraResources = [{ from: 'node_modules', to: 'node_modules', filter: [...names].sort().map((n) => `${n}/**/*`) }, ...others];
+pkg.build.extraResources = [{ from: 'node_modules', to: 'node_modules', filter: [...[...names].filter((n) => !n.startsWith('@types/')).sort().map((n) => `${n}/**/*`), '!**/*.map', '!**/*.d.ts'] }, ...others];   // nothing reads these at run time
 fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
 console.log(`${names.size} modules listed for packaging`);

@@ -64,23 +64,40 @@ function stripTab(m, tab) {
   const { url, pendingUrl, title, favIconUrl, ...rest } = tab;
   return rest;
 }
+const stripWindow = (m, w) => (w && Array.isArray(w.tabs) ? { ...w, tabs: w.tabs.map((t) => stripTab(m, t)) } : w);
+const cookieAllowed = (m, c) => {
+  const host = String((c && c.domain) || '').replace(/^\./, '');
+  return hostAllowed(m, `https://${host}/`) || hostAllowed(m, `http://${host}/`);
+};
 // Removes what the extension may not see from a result.
 function filterResult(extension, name, result) {
   const m = extension.manifest || {};
-  if (name === 'cookies.getAll' && Array.isArray(result)) {
-    return result.filter((c) => hostAllowed(m, `https://${String(c.domain || '').replace(/^\./, '')}/`));
-  }
+  if (name === 'cookies.getAll' && Array.isArray(result)) return result.filter((c) => cookieAllowed(m, c));
   if (/^tabs\.(get|query|getAllInWindow|getCurrent|create|update)$/.test(name)) {
     return Array.isArray(result) ? result.map((t) => stripTab(m, t)) : stripTab(m, result);
   }
-  if (/^windows\./.test(name) && result && Array.isArray(result.tabs)) return { ...result, tabs: result.tabs.map((t) => stripTab(m, t)) };
-  if (/^windows\./.test(name) && Array.isArray(result)) return result.map((w) => (w && Array.isArray(w.tabs) ? { ...w, tabs: w.tabs.map((t) => stripTab(m, t)) } : w));
+  if (/^windows\./.test(name)) return Array.isArray(result) ? result.map((w) => stripWindow(m, w)) : stripWindow(m, result);
   return result;
 }
 
+// The library sends each event to every extension that listens, so cookies and tab addresses would also reach
+// extensions with no access to those sites. Each one gets only what its manifest allows; null means nothing at all.
+const EVENT_FILTERS = {
+  'cookies.onChanged': (m, [info]) => (cookieAllowed(m, info && info.cookie) ? [info] : null),
+  'tabs.onCreated': (m, [tab]) => [stripTab(m, tab)],
+  'tabs.onUpdated': (m, [id, change, tab]) => {
+    const seen = stripTab(m, tab);
+    if (seen === tab) return [id, change, tab];
+    const { url, pendingUrl, title, favIconUrl, ...rest } = change || {};
+    return Object.keys(rest).length ? [id, rest, seen] : null;
+  },
+  'windows.onCreated': (m, [w]) => [stripWindow(m, w)],
+  'windows.onBoundsChanged': (m, [w]) => [stripWindow(m, w)]
+};
+
 function guardExtensionRouter(extensions, session, webContents) {
   const router = extensions && extensions.ctx && extensions.ctx.router;
-  if (!router || typeof router.onExtensionMessage !== 'function' || typeof router.addListener !== 'function') {
+  if (!router || typeof router.onExtensionMessage !== 'function' || typeof router.addListener !== 'function' || typeof router.sendEvent !== 'function' || !(router.listeners instanceof Map)) {
     throw new Error('Extension library changed: review extension-guard.js');   // no extensions rather than unchecked ones
   }
   const api = session.extensions || session;
@@ -102,6 +119,18 @@ function guardExtensionRouter(extensions, session, webContents) {
     const need = needsPermission(eventName);
     if (need && (!extension || !hasPermission(extension.manifest || {}, need))) return undefined;
     return listen(listener, claimed, eventName);
+  };
+  const send = router.sendEvent.bind(router);
+  router.sendEvent = (target, eventName, ...args) => {
+    const filter = EVENT_FILTERS[eventName];
+    if (!filter) return send(target, eventName, ...args);
+    for (const id of new Set((router.listeners.get(eventName) || []).map((l) => l.extensionId))) {
+      if (target && target !== id) continue;
+      const extension = api.getExtension(id);
+      const allowed = extension && filter(extension.manifest || {}, args);
+      if (allowed) send(id, eventName, ...allowed);
+    }
+    return undefined;
   };
 }
 
