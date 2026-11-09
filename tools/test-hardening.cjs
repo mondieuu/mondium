@@ -477,6 +477,30 @@ check('light engine: a refresh with most lists unreachable keeps the working eng
   assert.equal(written.length, 1, 'one dead list does not stop updates');
 });
 
+// ---------------------------------------------------------------- .deb update restart
+check('.deb update: the new program starts like a normal start, after the old one has gone', async () => {
+  const updater = read('updater.js');
+  const deb = between(updater, "install.type === 'deb'", 'app.quit();');
+  assert(!/app\.relaunch/.test(deb), 'a process started by the running browser dies at its zygote');
+  assert(/cmd: '\/bin\/bash', args: \['-c', RESTART_DEB, 'mondium-update', String\(process\.pid\), process\.execPath, \.\.\.process\.argv\.slice\(1\)\], env: originalEnv\(\)/.test(deb));
+  const { parseEnviron, RESTART_DEB } = require('../updater');
+  assert.deepEqual(parseEnviron('A=1\0B=x=y\0\0NOPE\0'), { A: '1', B: 'x=y' });
+  if (process.platform !== 'linux') return;
+  // Real shell: files the browser holds open must not reach the new program, and its arguments must.
+  const { spawn } = require('child_process');
+  await tempDir(async (dir) => {
+    const program = path.join(dir, 'program');
+    fs.writeFileSync(program, '#!/bin/sh\necho "args:$*"\nls /proc/self/fd\n', { mode: 0o755 });
+    const child = spawn('/bin/bash', ['-c', RESTART_DEB, 'x', '999999', program, '--one', 'two words'], { stdio: ['ignore', 'pipe', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    let text = '';
+    child.stdout.on('data', (d) => { text += d; });
+    await new Promise((r) => child.on('close', r));
+    assert(text.includes('args:--one two words'), text);
+    const fds = text.split('\n').slice(1).filter(Boolean).map(Number);
+    assert(!fds.includes(4) && !fds.includes(5), `inherited: ${fds}`);
+  });
+});
+
 // ---------------------------------------------------------------- Memory defaults
 check('memory: saving is on and tabs sleep after 5 minutes, also once for existing installs', () => {
   const defaults = between(source, 'const DEFAULTS', 'const SLEEP_CHOICES');
