@@ -1,41 +1,22 @@
-# Builds and tests Mondium on Windows, Linux and macOS.
-# A version tag (v1.2.3) also collects the installers into a draft GitHub release.
+# Temporary: repeats the .deb update to catch the missed restart.
 name: Build
-
 on:
   push:
-    tags: ['v*']
     branches: ['release/**']
-  workflow_dispatch:
-
 permissions:
   contents: read
-
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+  repeat:
+    name: deb-update-${{ matrix.copy }}-restrict${{ matrix.restrict }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: windows-x64
-            os: windows-2025
-            dist: npm run dist:win
-          - name: linux-x64
-            os: ubuntu-24.04
-            dist: npm run dist:linux
-          - name: mac-arm64
-            os: macos-15
-            dist: npm run dist:mac -- --arm64
-          - name: mac-x64
-            os: macos-15-intel
-            dist: npm run dist:mac -- --x64
+          - { copy: a, restrict: 0 }
+          - { copy: b, restrict: 0 }
+          - { copy: c, restrict: 1 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,144 +26,46 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Make sure the Electron program is present
-        run: node node_modules/electron/install.js
-      - name: Unit tests
-        run: |
-          npm run test:security
-          npm run test:platform
-          npm run test:update
-      - name: Build installers
-        run: ${{ matrix.dist }}
+      - run: node node_modules/electron/install.js
+      - run: npm run dist:linux
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-
-      - name: Test on Windows
-        if: runner.os == 'Windows'
-        shell: bash
-        run: node tools/smoke-test.cjs dist/win-unpacked/Mondium.exe
-        env:
-          SMOKE_OUT: smoke-shots/windows
-
-      - name: Install Linux test tools
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb imagemagick libfuse2t64
-      - name: Test the .deb package on Linux
-        if: runner.os == 'Linux'
+      - name: Set up
         run: |
-          sudo apt-get install -y ./dist/Mondium-*-linux-*.deb
-          xvfb-run -a -s "-screen 0 1280x820x24" node tools/smoke-test.cjs /opt/Mondium/mondium
-        env:
-          SMOKE_OUT: smoke-shots/linux-deb
-      - name: Test the AppImage on Linux
-        if: runner.os == 'Linux'
-        run: |
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          chmod +x dist/Mondium-*-linux-*.AppImage
-          xvfb-run -a -s "-screen 0 1280x820x24" node tools/smoke-test.cjs "$(ls dist/Mondium-*-linux-*.AppImage)"
-        env:
-          SMOKE_OUT: smoke-shots/linux-appimage
-
-      - name: Test the disk image on macOS
-        if: runner.os == 'macOS'
-        run: |
-          hdiutil attach dist/Mondium-*-mac-*.dmg -nobrowse -mountpoint /tmp/mondium-dmg
-          cp -R /tmp/mondium-dmg/Mondium.app /tmp/Mondium.app
-          hdiutil detach /tmp/mondium-dmg
-          codesign --verify --deep --strict /tmp/Mondium.app
-          node tools/smoke-test.cjs /tmp/Mondium.app/Contents/MacOS/Mondium
-        env:
-          SMOKE_OUT: smoke-shots/${{ matrix.name }}
-
-      # Uses the installer and uninstaller screens by hand and photographs them
-      - name: Test the installer screens on Windows
-        if: runner.os == 'Windows'
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $setup = (Get-ChildItem dist/Mondium-Setup-*.exe).FullName
-          gh release download --repo $env:GITHUB_REPOSITORY --pattern 'Mondium-Setup-*.exe' --dir older
-          $older = (Get-ChildItem older/Mondium-Setup-*.exe).FullName
-          ./tools/installer-test.ps1 $setup smoke-shots/windows-installer $older
-          exit $LASTEXITCODE
-
-      # A real update to the latest published release. Runs last: it replaces what was just tested.
-      - name: Test updating on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
-        run: |
-          $setup = (Get-ChildItem dist/Mondium-Setup-*.exe).FullName
-          Start-Process $setup -ArgumentList '/S' -Wait
-          node tools/update-test.cjs "$env:LOCALAPPDATA\Programs\Mondium\Mondium.exe"
-      - name: Test updating the .deb package on Linux
-        if: runner.os == 'Linux'
-        env:
-          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
-        run: |
-          sudo apt-get install -y pkexec polkitd
+          sudo apt-get update
+          sudo apt-get install -y xvfb pkexec polkitd
           echo 'polkit.addRule(function(action) { if (action.id == "org.freedesktop.policykit.exec") return polkit.Result.YES; });' | sudo tee /etc/polkit-1/rules.d/49-update-test.rules
           sudo systemctl restart polkit
-          xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /opt/Mondium/mondium
-      - name: Test updating the AppImage on Linux
-        if: runner.os == 'Linux'
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=${{ matrix.restrict }}
+      - name: Repeat the update
         env:
           MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
+          MONDIUM_UPDATE_TRACE: /tmp/mondium-trace.log
         run: |
-          mkdir -p /tmp/mondium-update
-          cp dist/Mondium-*-linux-*.AppImage /tmp/mondium-update/Mondium.AppImage
-          xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /tmp/mondium-update/Mondium.AppImage
-      - name: Test updating on macOS
-        if: runner.os == 'macOS'
-        env:
-          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
-        run: node tools/update-test.cjs /tmp/Mondium.app/Contents/MacOS/Mondium
-
-      - name: Keep test screenshots
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: smoke-shots-${{ matrix.name }}
-          path: smoke-shots/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Keep installers
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: installer-${{ matrix.name }}
-          path: |
-            dist/Mondium-Setup-*.exe
-            dist/Mondium-*-linux-*.deb
-            dist/Mondium-*-linux-*.AppImage
-            dist/Mondium-*-mac-*.dmg
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-  release:
-    name: Draft release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Tag must match the version in package.json
-        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: installer-*
-          path: installers
-          merge-multiple: true
-      - name: Create the draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ls -l installers
-          test "$(ls installers | wc -l)" -eq 5
-          gh release create "$GITHUB_REF_NAME" installers/* --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "Mondium ${GITHUB_REF_NAME#v}" --notes "Draft: release notes are added before publishing."
+          DEB=$(ls "$PWD"/dist/Mondium-*-linux-amd64.deb)
+          ( while :; do echo "== $(date +%T.%N)"; ps -eo pid,ppid,pgid,stat,args | grep -E '[m]ondium' | grep -vE 'update-test|--type=(zygote|gpu|utility|renderer)' | cut -c1-150; sleep 0.25; done >> /tmp/ps-samples.log ) &
+          SAMPLER=$!
+          fails=0; total=0
+          for i in $(seq 1 40); do
+            sudo apt-get install -y --allow-downgrades "$DEB" > /dev/null 2>&1
+            : > /tmp/mondium-trace.log
+            : > /tmp/ps-samples.log
+            sudo dmesg -C
+            total=$((total+1))
+            if xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /opt/Mondium/mondium > /tmp/out.txt 2>&1; then
+              echo "round $i: ok"
+              if [ "$i" = 1 ]; then cat /tmp/mondium-trace.log; fi
+            else
+              fails=$((fails+1))
+              echo "::group::round $i FAILED"
+              cat /tmp/out.txt
+              echo '--- trace ---'; cat /tmp/mondium-trace.log
+              echo '--- dmesg ---'; sudo dmesg | grep -iE 'segfault|denied|mondium|trap|killed' | tail -40
+              echo '--- coredumps ---'; ls -la /var/crash /var/lib/systemd/coredump 2>/dev/null
+              echo '--- process samples around the restart ---'; awk '/relauncher/{f=1} f' /tmp/ps-samples.log | head -80
+              echo '::endgroup::'
+              if [ "$fails" -ge 3 ]; then break; fi
+            fi
+          done
+          kill $SAMPLER || true
+          echo "RESULT: $fails failed of $total"

@@ -140,7 +140,11 @@ async function main() {
     report(await until(() => installedIs(latest), 5 * 60000), 'the new version is installed', latest);
     report(await until(() => running(), 2 * 60000), 'Mondium opens again by itself');
   } finally {
-    if (failures) console.log('--- profile files ---\n' + fs.readdirSync(profile).join('\n'));
+    if (failures) {
+      console.log('--- profile files ---\n' + fs.readdirSync(profile).join('\n'));
+      try { console.log('--- browser log (end) ---\n' + fs.readFileSync(logFile, 'utf8').split('\n').slice(-60).join('\n')); } catch (e) { console.log('no browser log: ' + e.message); }
+      try { console.log('--- processes ---\n' + output('ps', ['-eo', 'pid,ppid,stat,lstart,args'])); } catch {}
+    }
     closeAll();
     await wait(1500);
     try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch {}
