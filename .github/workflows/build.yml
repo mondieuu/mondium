@@ -1,4 +1,4 @@
-# Temporary: repeats the .deb update to catch the missed restart.
+# Temporary: finds out why the restarted Mondium dies.
 name: Build
 on:
   push:
@@ -6,17 +6,14 @@ on:
 permissions:
   contents: read
 jobs:
-  repeat:
-    name: deb-update-${{ matrix.copy }}-restrict${{ matrix.restrict }}
+  exp:
+    name: exp-restrict${{ matrix.restrict }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { copy: a, restrict: 0 }
-          - { copy: b, restrict: 0 }
-          - { copy: c, restrict: 1 }
+        restrict: [0, 1]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,48 +21,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: node node_modules/electron/install.js
-      - run: npm run dist:linux
+      - name: Install the published 1.6.4
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Set up
+          GH_TOKEN: ${{ github.token }}
         run: |
+          gh release download v1.6.4 --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir deb
           sudo apt-get update
-          sudo apt-get install -y xvfb pkexec polkitd
-          echo 'polkit.addRule(function(action) { if (action.id == "org.freedesktop.policykit.exec") return polkit.Result.YES; });' | sudo tee /etc/polkit-1/rules.d/49-update-test.rules
-          sudo systemctl restart polkit
+          sudo apt-get install -y xvfb ./deb/*.deb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=${{ matrix.restrict }}
-      - name: Repeat the update
-        env:
-          MONDIUM_UPDATE_TEST_TOKEN: ${{ github.token }}
-          MONDIUM_UPDATE_TRACE: /tmp/mondium-trace.log
+      - name: Experiment
         run: |
-          DEB=$(ls "$PWD"/dist/Mondium-*-linux-amd64.deb)
-          ( while :; do echo "== $(date +%T.%N)"; ps -eo pid,ppid,pgid,stat,args | grep -E '[m]ondium' | grep -vE 'update-test|--type=(zygote|gpu|utility|renderer)' | cut -c1-150; sleep 0.25; done >> /tmp/ps-samples.log ) &
-          SAMPLER=$!
-          fails=0; total=0
-          for i in $(seq 1 40); do
-            sudo apt-get install -y --allow-downgrades "$DEB" > /dev/null 2>&1
-            : > /tmp/mondium-trace.log
-            : > /tmp/ps-samples.log
-            sudo dmesg -C
-            total=$((total+1))
-            if xvfb-run -a -s "-screen 0 1280x820x24" node tools/update-test.cjs /opt/Mondium/mondium > /tmp/out.txt 2>&1; then
-              echo "round $i: ok"
-              if [ "$i" = 1 ]; then cat /tmp/mondium-trace.log; fi
-            else
-              fails=$((fails+1))
-              echo "::group::round $i FAILED"
-              cat /tmp/out.txt
-              echo '--- trace ---'; cat /tmp/mondium-trace.log
-              echo '--- dmesg ---'; sudo dmesg | grep -iE 'segfault|denied|mondium|trap|killed' | tail -40
-              echo '--- coredumps ---'; ls -la /var/crash /var/lib/systemd/coredump 2>/dev/null
-              echo '--- process samples around the restart ---'; awk '/relauncher/{f=1} f' /tmp/ps-samples.log | head -80
-              echo '::endgroup::'
-              if [ "$fails" -ge 3 ]; then break; fi
-            fi
-          done
-          kill $SAMPLER || true
-          echo "RESULT: $fails failed of $total"
+          Xvfb :99 -screen 0 1280x820x24 &
+          sleep 1
+          bash tools/nnp-exp.sh
