@@ -72,7 +72,7 @@ const DEFAULTS = {
   askDownloadLocation: false, // ask where to save every download (native, non-blocking dialog)
   newTabPrompt: false,       // Ctrl+T opens a search/address box first instead of the new tab page
   overlayScrollbar: true,    // thin overlay scrollbar that takes no page width
-  memorySaver: false,        // V8 --optimize-for-size: less RAM, possibly slower heavy sites (restart)
+  memorySaver: true,         // V8 --optimize-for-size: less RAM, possibly slower heavy sites (restart)
   autoUpdateCheck: true,     // at most once a day, ask GitHub if a new version exists and show it; installing is the user's choice
   updateCheckedAt: 0,
   updateKnown: '',           // newest version seen, so the indicator survives a restart without asking GitHub again
@@ -105,7 +105,7 @@ const DEFAULTS = {
   clearPrefs: { range: 'all', history: true, downloads: false, cookies: true, cache: false, protect: true },   // last choice in the clear-data dialog   // auto-hide mode: sidebar hidden, opens at the same width when the mouse hits the left edge (Ctrl+S)
   adblockEngine: 'ubo',      // 'ubo' = built-in uBlock Origin (strongest, ~250 MB more RAM), 'hafif' = Mondium engine
   restoreSession: true,      // previous tabs come back (asleep) on startup
-  sleepMinutes: 10,          // background tabs are put to sleep after this many minutes
+  sleepMinutes: 5,           // background tabs are put to sleep after this many minutes
   downloadNotify: true       // system notification when a download finishes
 };
 const SLEEP_CHOICES = [5, 10, 30, 60];
@@ -128,7 +128,9 @@ if (!settings.keepLoginsSet) { settings.clearGoogleOnExit = false; settings.keep
 // Nov 2026: image zoom is now on by default (turned on once, since old installs have "off" saved in the file)
 if (!settings.hoverZoomOnSet) { settings.hoverZoom = true; settings.hoverZoomOnSet = true; saveSettings(true); }
 // The old "Never" (0 min) choice is now a separate key
-if (!SLEEP_CHOICES.includes(settings.sleepMinutes)) { if (settings.sleepMinutes === 0) settings.sleepTabs = false; settings.sleepMinutes = 10; }
+if (!SLEEP_CHOICES.includes(settings.sleepMinutes)) { if (settings.sleepMinutes === 0) settings.sleepTabs = false; settings.sleepMinutes = 5; }
+// Once on existing installs: less memory by default. Only the old default time moves: a chosen 30 or 60 minutes, or sleeping turned off, stays.
+if (!settings.memoryDefaultsSet) { settings.memorySaver = true; if (settings.sleepMinutes === 10) settings.sleepMinutes = 5; settings.memoryDefaultsSet = true; saveSettings(true); }
 const SIDE_MIN = 56;    // narrowest: tab icons only
 const sideWidth = (winWidth) => Math.round(Math.max(SIDE_MIN, Math.min(settings.verticalWidth || 240, Math.max(SIDE_MIN, Math.min(560, (winWidth || 1280) * 0.6)))));
 

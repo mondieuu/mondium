@@ -80,7 +80,7 @@ Clear everything, except the sites you choose to keep signed in to.
 ### Memory
 - **Deferred background tabs.** A link opened in the background is only a title until you select it: no renderer, scripts or media.
 - **Blocking saves memory too.** Ads and trackers that never load never get a process. In our test with six popular sites (Windows, full site isolation), Mondium settled at about 1.2 GB in 14 processes. With blocking broken (the 1.4.0 bug), the same sites took 2.0 GB in 39 processes.
-- **Extra memory saving (optional).** Settings → Performance makes the JavaScript engine favor memory over speed: about 5% less RAM on the same test, possibly a little slower on heavy sites.
+- **Extra memory saving (on by default).** Settings → Performance makes the JavaScript engine favor memory over speed: about 5% less RAM on the same test, possibly a little slower on heavy sites.
 - **Process grouping (optional).** Full site isolation is on by default. Turning it off lets regular sites share processes while sign-in, payment and protected sites stay isolated. With ads blocked it saves little: about 50–150 MB on the same six sites.
 - **Tab sleeping.** Background tabs are unloaded after 5–60 minutes (configurable), or by hand from the tab menu or task manager. Tabs playing audio are never put to sleep automatically.
 - **Lazy session restore.** Only the active tab loads at startup.
