@@ -92,6 +92,15 @@ const run = (cmd, args, ms = 180000) => new Promise((resolve, reject) => {
 
 // Waits for the running browser to exit, so the single instance lock is free and its files are no longer in use.
 const WAIT_FOR_EXIT = 'i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt 120 ]; do sleep 0.5; i=$((i+1)); done';
+// .deb: a program started by the running browser, as app.relaunch does, dies at its zygote. So it starts the way a normal start
+// does: after the browser has gone, without the files the browser held open, with the environment the browser itself got.
+const RESTART_DEB = `for fd in /proc/$$/fd/*; do n=\${fd##*/}; case "$n" in 0|1|2) ;; *) eval "exec $n>&-" 2>/dev/null ;; esac; done
+${WAIT_FOR_EXIT}
+exec "$2" "\${@:3}"`;
+const parseEnviron = (text) => Object.fromEntries(text.split('\0').filter((x) => x.indexOf('=') > 0).map((x) => { const at = x.indexOf('='); return [x.slice(0, at), x.slice(at + 1)]; }));
+function originalEnv() {
+  try { return parseEnviron(fs.readFileSync('/proc/self/environ', 'latin1')); } catch { return process.env; }
+}
 const SWAP_MAC_APP = `${WAIT_FOR_EXIT}
 bak="$2.old-$1"
 if mv "$2" "$bak"; then
@@ -301,7 +310,7 @@ function createUpdater({ app, session, shell, getSettings, save, onChange, confi
         pending = { cmd: '/bin/sh', args: ['-c', SWAP_APPIMAGE, 'mondium-update', String(process.pid), install.file, st.stage], env, cwd: path.dirname(install.file) };
       } else if (install.type === 'deb') {
         if (!await installDeb(st.file)) { getSettings().restoreOnce = false; save(); return; }   // no restart after all
-        app.relaunch();
+        pending = { cmd: '/bin/bash', args: ['-c', RESTART_DEB, 'mondium-update', String(process.pid), process.execPath, ...process.argv.slice(1)], env: originalEnv(), cwd: '/' };
       }
       app.quit();
     } finally { restartAsked = false; }
@@ -348,4 +357,4 @@ function createUpdater({ app, session, shell, getSettings, save, onChange, confi
   };
 }
 
-module.exports = { createUpdater, parseVersion, isNewer, assetName, detectInstall, pickAsset, isGithubHost };
+module.exports = { RESTART_DEB, parseEnviron, createUpdater, parseVersion, isNewer, assetName, detectInstall, pickAsset, isGithubHost };

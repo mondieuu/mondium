@@ -138,6 +138,11 @@ async function main() {
     report(saved.restoreOnce === true, 'tabs are set to come back after the restart');
     report(await until(() => installedIs(latest), 5 * 60000), 'the new version is installed', latest);
     report(await until(() => running(), 2 * 60000), 'Mondium opens again by itself');
+    // .deb: the restart keeps the arguments, so the debugging port shows whether a real window came up, not only a process.
+    if (exe === '/opt/Mondium/mondium') {
+      const again = await findTarget(/ui\.html/, 60000);
+      report(!!again && await until(() => val(again, `typeof browserApi === 'object'`), 20000), 'its window opens');
+    }
   } finally {
     if (failures) console.log('--- profile files ---\n' + fs.readdirSync(profile).join('\n'));
     closeAll();
