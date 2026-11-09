@@ -27,7 +27,7 @@ jobs:
         run: |
           gh release download v1.6.4 --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir deb
           sudo apt-get update
-          sudo apt-get install -y xvfb ./deb/*.deb
+          sudo apt-get install -y xvfb strace ./deb/*.deb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=${{ matrix.restrict }}
       - name: Experiment
         run: |
