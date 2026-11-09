@@ -477,6 +477,16 @@ check('light engine: a refresh with most lists unreachable keeps the working eng
   assert.equal(written.length, 1, 'one dead list does not stop updates');
 });
 
+// ---------------------------------------------------------------- Memory defaults
+check('memory: saving is on and tabs sleep after 5 minutes, also once for existing installs', () => {
+  const defaults = between(source, 'const DEFAULTS', 'const SLEEP_CHOICES');
+  assert(/memorySaver: true/.test(defaults));
+  assert(/sleepMinutes: 5\b/.test(defaults));
+  assert(/if \(!settings\.memoryDefaultsSet\) \{ settings\.memorySaver = true; if \(settings\.sleepMinutes === 10\) settings\.sleepMinutes = 5; settings\.memoryDefaultsSet = true; saveSettings\(true\); \}/.test(source), 'only the old default moves: a chosen 30 or 60 minutes or sleeping turned off stays');
+  assert(source.indexOf('settings.memoryDefaultsSet') < source.indexOf("if (settings.memorySaver) cl.appendSwitch"), 'the switch reads the setting after the move');
+  assert(/settings\.sleepTabs = false; settings\.sleepMinutes = 5;/.test(source), 'an unknown choice falls back to the default');
+});
+
 // ---------------------------------------------------------------- Page privacy
 check('hover zoom follows the page referrer policy', () => {
   assert(!/referrerPolicy/.test(read('hoverzoom.js')), 'a preview must not send the full page address when the page chose not to');
