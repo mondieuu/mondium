@@ -348,8 +348,8 @@ async function main() {
       else info('cookies on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
     } catch (e) { report(false, 'cookie store can be read', `${cookieFile}: ${e.message}`); }
 
-    // Fuses of this very program
-    try {
+    // Fuses of this very program. An AppImage is a wrapper around it, so its fuses cannot be read from outside.
+    if (!/\.AppImage$/i.test(exe)) try {
       const { getCurrentFuseWire, FuseV1Options } = require('@electron/fuses');
       const wire = await getCurrentFuseWire(exe.replace(/(\.app)\/Contents\/MacOS\/.*$/, '$1'));
       const off = (name) => wire[FuseV1Options[name]] === 48, on = (name) => wire[FuseV1Options[name]] === 49;   // ASCII 0 and 1

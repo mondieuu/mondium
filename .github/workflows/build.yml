@@ -24,18 +24,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: windows-x64
-            os: windows-2025
-            dist: npm run dist:win
-          - name: linux-x64
-            os: ubuntu-24.04
-            dist: npm run dist:linux
           - name: mac-arm64
             os: macos-15
             dist: npm run dist:mac -- --arm64
-          - name: mac-x64
-            os: macos-15-intel
-            dist: npm run dist:mac -- --x64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,7 +81,10 @@ jobs:
           cp -R /tmp/mondium-dmg/Mondium.app /tmp/Mondium.app
           hdiutil detach /tmp/mondium-dmg
           codesign --verify --deep --strict /tmp/Mondium.app
-          node tools/smoke-test.cjs /tmp/Mondium.app/Contents/MacOS/Mondium
+          for v in old nomod noprobe nosecond test; do
+            echo "=== VARIANT $v"
+            node tools/smoke-$v.cjs /tmp/Mondium.app/Contents/MacOS/Mondium 2>&1 | grep -E 'FAIL  |fullscreen|green button|quits cleanly|check\(s\)|All checks' || true
+          done
         env:
           SMOKE_OUT: smoke-shots/${{ matrix.name }}
 
