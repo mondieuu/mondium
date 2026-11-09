@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.6.4",
+  "version": "1.7.0",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -18,7 +18,7 @@
     "update-ublock": "node tools/update-ublock.js",
     "prepare-security": "node tools/prepare-security.js",
     "postinstall": "node tools/prepare-security.js",
-    "test:security": "node tools/test-security.cjs",
+    "test:security": "node tools/test-security.cjs && node tools/test-hardening.cjs",
     "test:update": "node tools/test-update.cjs",
     "check:engine": "node tools/check-engine.cjs",
     "test:platform": "node tools/test-platform.cjs",
@@ -44,7 +44,10 @@
       "en-US"
     ],
     "electronFuses": {
-      "grantFileProtocolExtraPrivileges": false
+      "grantFileProtocolExtraPrivileges": false,
+      "enableCookieEncryption": true,
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false
     },
     "files": [
       "main.js",
@@ -78,7 +81,12 @@
       "threat-protection.js",
       "securitywarning.html",
       "private-ubo.js",
-      "overlay-scrollbar.js"
+      "overlay-scrollbar.js",
+      "safe-write.js",
+      "net-rules.js",
+      "LICENSE",
+      "NOTICE.md",
+      "!**/*.map"
     ],
     "win": {
       "target": [
@@ -243,10 +251,6 @@
           "@remusao/smaz-compress/**/*",
           "@remusao/smaz-decompress/**/*",
           "@remusao/trie/**/*",
-          "@types/chrome/**/*",
-          "@types/filesystem/**/*",
-          "@types/filewriter/**/*",
-          "@types/har-format/**/*",
           "adm-zip/**/*",
           "debug/**/*",
           "electron-chrome-extensions/**/*",
@@ -255,7 +259,9 @@
           "pbf/**/*",
           "protocol-buffers-schema/**/*",
           "resolve-protobuf-schema/**/*",
-          "tldts-experimental/**/*"
+          "tldts-experimental/**/*",
+          "!**/*.map",
+          "!**/*.d.ts"
         ]
       },
       {

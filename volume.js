@@ -3,7 +3,7 @@
 // Re-running only updates the gain; nodes are built once per element (no leak, WeakMap).
 // Cross-origin media without CORS goes SILENT when connected to Web Audio, so it is left alone.
 (() => {
-  const KEY = Symbol.for('mondium.volume');
+  const KEY = Symbol.for(KEY_NAME);
   let s = window[KEY];
   if (!s) {
     if (GAIN === 1) return 0;                       // don't set up on a page that was never boosted

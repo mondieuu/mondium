@@ -298,6 +298,10 @@
   .bubble { position:absolute; width:420px; max-width:calc(100vw - 16px); background:var(--menu); color:var(--text); border-radius:12px;
     box-shadow:0 2px 6px rgba(0,0,0,.18), 0 10px 28px rgba(0,0,0,.28); font:14px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
     animation:pin .12s ease-out; white-space:normal; overflow:hidden; }
+  .bubble:focus { outline:none; }
+  #fsnote { display:none; }
+  body.fsnote > *:not(#fsnote) { visibility:hidden; }
+  body.fsnote #fsnote { display:block; position:fixed; top:12px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 32px); padding:9px 18px; border-radius:20px; background:rgba(32,33,36,.92); color:#fff; font:14px "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bubble .bh { display:flex; align-items:flex-start; gap:12px; padding:18px 10px 6px 24px; }
   .bubble .bh img { width:32px; height:32px; border-radius:6px; flex:none; margin-top:-2px; }
   .bubble .bti { flex:1; min-width:0; font-size:17px; line-height:1.4; overflow-wrap:anywhere; }
@@ -390,6 +394,7 @@
 <div id="newtabPrompt" hidden><form><div class="newtab-row"><span id="newtabSearchIcon"></span><input id="newtabQuery" autocomplete="off" spellcheck="false" aria-label="Yeni sekmede ara veya adres yaz" role="combobox" aria-autocomplete="list" aria-controls="newtabResults" aria-expanded="false"></div><div id="newtabResults" role="listbox"></div></form></div>
 <div id="sug" hidden></div>
 <div id="pop" hidden></div>
+<div id="fsnote"></div>
 
 <script>
 'use strict';
@@ -761,6 +766,8 @@ function applyThemeVars(t) {
 }
 function render(s) {
   applyThemeVars(s.theme);
+  document.body.classList.toggle('fsnote', !!s.fullscreenNotice);
+  $('fsnote').textContent = s.fullscreenNotice ? `${s.fullscreenNotice} tam ekran. Çıkmak için Esc tuşuna basın.` : '';
   if (drag && drag.moved) {
     const tab = s.tabs.find((t) => t.id === drag.id);
     const accent = /^#[0-9a-f]{6}$/i.test(tab?.iconColor || '') ? tab.iconColor : '#808080';
@@ -1342,11 +1349,18 @@ browserApi.onFindStep((forward) => { if (findq.value) send('find', { text: findq
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && prompt) { e.preventDefault(); answerPrompt('dismiss'); return; }
   if (e.key === 'Escape' && (menu || chooser)) { e.preventDefault(); closeMenu(); }
-  if (e.key === 'Enter' && chooser && chooser.selected) { e.preventDefault(); send('chooser-select', chooser.selected); }
+  if (e.key === 'Enter' && !e.repeat && chooser && chooser.selected) { e.preventDefault(); pickDevice(chooser.selected); }
 });
 
 // ================================================================ Device chooser bubble (opens below the address bar)
 let chooser = null;   // { data, selected }
+// Input protection, like Chrome: a page can open a bubble at the moment the user clicks or presses a key, so a click or
+// key that lands on a fresh bubble is not an answer. No timer runs: only the time of the input is compared.
+const BUBBLE_SETTLE_MS = 500;
+let bubbleShownAt = 0;
+const armBubble = () => { bubbleShownAt = performance.now(); };
+const bubbleSettled = () => performance.now() - bubbleShownAt >= BUBBLE_SETTLE_MS;
+const pickDevice = (id) => { if (bubbleSettled()) send('chooser-select', id); };
 const CHOOSER_TITLE = {
   serial: 'bir seri bağlantı noktasına bağlanmak istiyor', hid: 'bir HID cihazına bağlanmak istiyor',
   usb: 'bir USB cihazına bağlanmak istiyor', bluetooth: 'bir Bluetooth cihazıyla eşleşmek istiyor'
@@ -1404,12 +1418,12 @@ function drawChooser() {
     tx.append(n, s);
     r.append(tx);
     r.onclick = () => { chooser.selected = dev.id; drawChooser(); };
-    r.ondblclick = () => send('chooser-select', dev.id);
+    r.ondblclick = () => pickDevice(dev.id);
     list.appendChild(r);
   }
   body.append(list);
   footButton(foot, 'İptal', closeMenu);
-  const ok = footButton(foot, 'Bağlan', () => { if (chooser && chooser.selected) send('chooser-select', chooser.selected); });
+  const ok = footButton(foot, 'Bağlan', () => { if (chooser && chooser.selected) pickDevice(chooser.selected); });
   ok.disabled = !chooser.selected;
   list.scrollTop = listScroll || 0;
   placeBubble(box);
@@ -1436,15 +1450,17 @@ function drawPrompt() {
     body.append(row);
   }
   if (d.note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = d.note; body.append(n); }
-  footButton(foot, d.cancel || 'Engelle', () => answerPrompt('cancel'));
-  const ok = footButton(foot, d.ok || 'İzin ver', () => answerPrompt('ok'));
+  footButton(foot, d.cancel || 'Engelle', () => { if (bubbleSettled()) answerPrompt('cancel'); });
+  footButton(foot, d.ok || 'İzin ver', () => { if (bubbleSettled()) answerPrompt('ok'); });
   placeBubble(box);
-  setTimeout(() => ok.focus(), 0);
+  // The bubble takes the keyboard, not its Allow button: a key pressed for the page must not answer. Tab reaches the buttons.
+  box.tabIndex = -1;
+  setTimeout(() => box.focus(), 0);
 }
-browserApi.onPromptOpen((d) => { menu = null; chooser = null; prompt = d; pop.hidden = false; drawPrompt(); });
+browserApi.onPromptOpen((d) => { menu = null; chooser = null; prompt = d; pop.hidden = false; armBubble(); drawPrompt(); });
 browserApi.onPromptClose(() => { if (prompt) { prompt = null; pop.hidden = true; pop.replaceChildren(); } });
 
-browserApi.onChooserOpen((d) => { menu = null; chooser = { data: d, selected: null }; pop.hidden = false; drawChooser(); });
+browserApi.onChooserOpen((d) => { menu = null; chooser = { data: d, selected: null }; pop.hidden = false; armBubble(); drawChooser(); });
 browserApi.onChooserData((d) => { if (chooser) { chooser.data = d; drawChooser(); } });
 window.addEventListener('blur', () => { /* main process closes the menu when the window loses focus */ });
 

@@ -707,6 +707,7 @@
     ['{0} artık korunmuyor.', '{0} is no longer protected.'],
     ['{0} site korunuyor.', '{0} {0:site is|sites are} protected.'],
     ['{0} site korunuyor', '{0} {0:site|sites} protected'],
+    ['{0} tam ekran. Çıkmak için Esc tuşuna basın.', '{0} is full screen. Press Esc to leave.'],
     ['{0} korunuyor. {1}', '{0} is protected. {1}'],
     ['{0} korunuyor.', '{0} is protected.'],
     ['{0} site · {1} çerez', '{0} {0:site|sites} · {1} {1:cookie|cookies}'],

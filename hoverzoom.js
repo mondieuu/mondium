@@ -149,7 +149,6 @@
     };
     if (p.video) { m.muted = true; m.loop = true; m.autoplay = true; m.playsInline = true; m.onloadedmetadata = ready; }
     else { m.decoding = 'async'; m.onload = ready; }
-    m.referrerPolicy = 'no-referrer-when-downgrade';
     m.src = p.url;
   }
 
