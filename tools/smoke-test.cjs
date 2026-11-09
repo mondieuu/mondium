@@ -82,6 +82,7 @@ async function macWindowButtons({ uiWs, mainWs, st }) {
     const r = el.getBoundingClientRect(), c = getComputedStyle(el);
     return r.width && r.height && c.visibility !== 'hidden' && r.left < ${x2} && r.right > 0 && r.top < ${y2} && r.bottom > 0;
   }).map((el) => el.id || el.className || el.tagName))`;
+  info('windows', await M(`return JSON.stringify(E.BaseWindow.getAllWindows().map((x) => [x.getTitle(), x.isVisible(), x.isFullScreenable(), x.isFullScreen()]))`));
   const uis = async () => Promise.all((await targets()).filter((x) => /ui\.html/.test(x.url)).map((x) => open(x.webSocketDebuggerUrl)));
   const check = async (name) => {
     await wait(1200);
@@ -326,6 +327,7 @@ async function main() {
 
     // Clean exit. On macOS through the red window button's path: closing the last window quits the app.
     if (mainWs) {
+      info('windows at quit', await val(mainWs, `JSON.stringify(process.mainModule.require('electron').BaseWindow.getAllWindows().map((x) => [x.getTitle(), x.isVisible(), x.isFullScreen()]))`));
       const leave = process.platform === 'darwin' ? 'E.BaseWindow.getAllWindows().forEach((w) => w.close())' : 'E.app.quit()';
       await val(mainWs, `setTimeout(() => { const E = process.mainModule.require('electron'); ${leave}; }, 300); 1`).catch(() => {});
       mainWs.close();   // the process waits at exit while an inspector stays attached
@@ -334,21 +336,24 @@ async function main() {
     report(!!clean && !clean.signal && clean.code === 0, 'quits cleanly', clean ? `code ${clean.code}` : 'still running after 20 s');
 
     // Saved cookies: encrypted on disk, so a copied profile or backup does not hand out sign-ins.
-    const cookieFile = path.join(profile, 'Partitions', 'main', 'Network', 'Cookies');
+    // Not on macOS for now: an ad-hoc signed app would ask for the Keychain after every update.
+    const encrypts = process.platform !== 'darwin';
+    const cookieFile = ['Network/Cookies', 'Cookies'].map((f) => path.join(profile, 'Partitions', 'main', f)).find((f) => fs.existsSync(f));
     try {
       const { DatabaseSync } = require('node:sqlite');
       const db = new DatabaseSync(cookieFile, { readOnly: true });
       const row = db.prepare(`SELECT value, length(encrypted_value) AS sealed FROM cookies WHERE name = 'smokecookie'`).get();
       db.close();
-      report(!!row && row.value === '' && row.sealed > 0, 'cookies are encrypted on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
-    } catch (e) { report(false, 'cookies are encrypted on disk', e.message); }
+      if (encrypts) report(!!row && row.value === '' && row.sealed > 0, 'cookies are encrypted on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
+      else info('cookies on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
+    } catch (e) { report(false, 'cookie store can be read', `${cookieFile}: ${e.message}`); }
 
     // Fuses of this very program
     try {
       const { getCurrentFuseWire, FuseV1Options } = require('@electron/fuses');
       const wire = await getCurrentFuseWire(exe.replace(/(\.app)\/Contents\/MacOS\/.*$/, '$1'));
       const off = (name) => wire[FuseV1Options[name]] === 48, on = (name) => wire[FuseV1Options[name]] === 49;   // ASCII 0 and 1
-      report(off('RunAsNode') && off('EnableNodeOptionsEnvironmentVariable') && off('GrantFileProtocolExtraPrivileges') && on('EnableCookieEncryption'), 'program fuses are set', `runAsNode ${off('RunAsNode') ? 'off' : 'ON'}, NODE_OPTIONS ${off('EnableNodeOptionsEnvironmentVariable') ? 'off' : 'ON'}, cookie encryption ${on('EnableCookieEncryption') ? 'on' : 'OFF'}`);
+      report(off('RunAsNode') && off('EnableNodeOptionsEnvironmentVariable') && off('GrantFileProtocolExtraPrivileges') && (on('EnableCookieEncryption') === encrypts), 'program fuses are set', `runAsNode ${off('RunAsNode') ? 'off' : 'ON'}, NODE_OPTIONS ${off('EnableNodeOptionsEnvironmentVariable') ? 'off' : 'ON'}, cookie encryption ${on('EnableCookieEncryption') ? 'on' : 'OFF'}`);
     } catch (e) { report(false, 'program fuses are set', e.message); }
   } finally {
     if (failures) console.log('--- application log ---\n' + log.slice(-6000));
