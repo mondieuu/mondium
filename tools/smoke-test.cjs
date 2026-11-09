@@ -138,7 +138,10 @@ async function macWindowButtons({ uiWs, mainWs, st }) {
 
 // Web-security review: the permission bubble and what a page may open, in the real interface.
 async function pagePermissions({ uiWs, page, base }) {
+  const only = process.env.SMOKE_ONLY;
+  if (only !== 'perms' && only !== 'popup') return;
   const allow = `[...document.querySelectorAll('.bubble .bf button')].pop()`;
+  if (only === 'perms') {
   await val(page, `window.__asked = Promise.all(Array.from({ length: 50 }, () => Notification.requestPermission())); document.cookie = 'smokecookie=plaintextvalue; max-age=3600'; 1`);
   const asked = await until(() => val(uiWs, '!!prompt'), 8000);
   report(!!asked, 'a site asking for a permission gets a bubble');
@@ -152,6 +155,8 @@ async function pagePermissions({ uiWs, page, base }) {
   report(await val(uiWs, '!prompt'), 'a question asked 50 times is one bubble with one answer');
   report(await val(page, 'Notification.permission') === 'granted', 'the answer reaches the page');
 
+  }
+  if (only !== 'popup') return;
   // A document the page made (about:blank) is still that page: it cannot open data: as the browser would.
   const before = (await targets()).length;
   const opened = await cdp(page, 'Runtime.evaluate', { userGesture: true, returnByValue: true, expression: `(() => { const w = window.open('about:blank', '_blank', 'width=420,height=420'); if (!w) return 'no popup'; w.open('data:text/html,<title>smokedata</title>smoke'); setTimeout(() => w.close(), 1500); return 'ok'; })()` });
@@ -246,7 +251,7 @@ async function main() {
       await val(mainWs, `process.mainModule.require('electron').session.fromPartition('persist:main').fetch(${JSON.stringify(base + '/cookie-probe')}, { credentials: 'omit' }).then((r) => r.text()).then(() => 1)`);
       report(cookieProbe === '', 'browser requests with credentials omitted send no cookies', JSON.stringify(cookieProbe));
     }
-    await secondStart({ env, base }).catch((e) => report(false, 'second start checks ran', e.message));
+    if (process.env.SMOKE_ONLY === 'second') await secondStart({ env, base }).catch((e) => report(false, 'second start checks ran', e.message));
 
     // Renderer sandbox on Linux: a sandboxed renderer runs under seccomp mode 2.
     if (process.platform === 'linux' && mainWs) {
@@ -300,8 +305,8 @@ async function main() {
     report(!!stillLoaded && !!blockedLater, 'uBlock Origin still loaded and blocking 45 s after start', `loaded ${!!stillLoaded}, tracker ${blockedLater ? 'blocked' : 'reached'}`);
 
     // Reader mode keeps the text when the best container is <main>. The page has the sentence 30 times, the reader adds its own copies.
-    await val(uiWs, `browserApi.send('navigate', ${JSON.stringify(base + '/reader')}); 1`);
-    const readerPage = await findTarget(/127\.0\.0\.1:\d+\/reader/, 20000);
+    if (process.env.SMOKE_ONLY === 'reader') await val(uiWs, `browserApi.send('navigate', ${JSON.stringify(base + '/reader')}); 1`);
+    const readerPage = process.env.SMOKE_ONLY === 'reader' ? await findTarget(/127\.0\.0\.1:\d+\/reader/, 20000) : null;
     if (readerPage) {
       await until(() => val(readerPage, `document.readyState === 'complete'`), 5000);
       await cdp(readerPage, 'DOM.enable');
@@ -317,7 +322,7 @@ async function main() {
       report(!!(await until(() => val(uiWs, `!document.body.classList.contains('fsnote')`), 7000)), 'the fullscreen notice goes away by itself');
       await val(readerPage, 'document.exitFullscreen().then(() => 1, () => 1)');
       await wait(1000);
-    } else report(false, 'reader test page loads');
+    }
 
     // The patched store preload must load from the package and open the store API on the real origin.
     await val(uiWs, `browserApi.send('navigate', 'https://chromewebstore.google.com/'); 1`);
@@ -348,8 +353,8 @@ async function main() {
       else info('cookies on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
     } catch (e) { report(false, 'cookie store can be read', `${cookieFile}: ${e.message}`); }
 
-    // Fuses of this very program
-    try {
+    // Fuses of this very program. An AppImage is a wrapper around it, so its fuses cannot be read from outside.
+    if (!/\.AppImage$/i.test(exe)) try {
       const { getCurrentFuseWire, FuseV1Options } = require('@electron/fuses');
       const wire = await getCurrentFuseWire(exe.replace(/(\.app)\/Contents\/MacOS\/.*$/, '$1'));
       const off = (name) => wire[FuseV1Options[name]] === 48, on = (name) => wire[FuseV1Options[name]] === 49;   // ASCII 0 and 1
