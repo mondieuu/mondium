@@ -332,7 +332,14 @@ app.userAgentFallback = app.userAgentFallback
   .replace(/\s?Electron\/\S+/i, '')
   .replace(new RegExp('\\s?' + app.getName().replace(/[^\w]/g, '\\$&') + '\\/\\S+', 'i'), '');
 
-if (!app.requestSingleInstanceLock()) { app.quit(); }
+if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] start ppid=${process.ppid} argv=${process.argv.join(' ')}
+`);
+process.on('exit', (c) => { if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] exit code=${c}
+`); });
+const __lock = app.requestSingleInstanceLock();
+if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] single instance lock=${__lock}
+`);
+if (!__lock) { app.quit(); }
 
 // ---------------------------------------------------------------- Google sign-in fix
 // Google rejects browsers that look exactly like "plain Chrome" but aren't real Chrome after the email step,
@@ -3566,6 +3573,8 @@ app.whenReady().then(async () => {
 // On quit: write settings, clear Google data
 let cleanedUp = false;
 app.on('before-quit', (e) => {
+  if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] before-quit cleanedUp=${cleanedUp}
+`);
   if (cleanedUp) return;
   e.preventDefault();
   cleanedUp = true;
@@ -3582,6 +3591,7 @@ app.on('before-quit', (e) => {
   Promise.race([job, new Promise((r) => setTimeout(r, 4000))]).finally(() => app.quit());
 });
 
-app.on('quit', () => updater.runPending());
+app.on('quit', () => { if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] quit event
+`); updater.runPending(); });
 
 app.on('window-all-closed', () => app.quit());

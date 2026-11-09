@@ -83,11 +83,12 @@ function closeAll() {
 async function main() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mondium-update-'));
   fs.writeFileSync(path.join(profile, 'ayarlar.json'), JSON.stringify({ firstRunDone: true, keepLoginsSet: true, restoreSession: false, language: 'en', autoUpdateCheck: false }));
-  const env = { ...process.env, MONDIUM_PROFILE: profile, MONDIUM_UPDATE_TEST_VERSION: '0.0.1' };
+  const logFile = path.join(os.tmpdir(), `mondium-update-${process.pid}.log`);
+  const env = { ...process.env, MONDIUM_PROFILE: profile, MONDIUM_UPDATE_TEST_VERSION: '0.0.1', ELECTRON_ENABLE_LOGGING: 'file', ELECTRON_LOG_FILE: logFile };
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(exe, [`--remote-debugging-port=${CDP_PORT}`], { env, stdio: 'ignore' });
-  let exited = false;
-  child.on('exit', () => { exited = true; });
+  let exited = false, exitInfo = '';
+  child.on('exit', (code, signal) => { exited = true; exitInfo = `code ${code}, signal ${signal}`; });
   try {
     const ui = await findTarget(/ui\.html/, 120000);
     report(!!ui, 'window opens');
@@ -133,7 +134,7 @@ async function main() {
     // The click on the button; the socket must not keep the process alive
     await val(st, `[...document.querySelectorAll('#hakkinda + .card button')].find((b) => /Restart and update/.test(b.textContent)).click(); 1`);
     st.close(); ui.close();
-    report(await until(() => exited, 10 * 60000), 'Mondium closes for the update');
+    report(await until(() => exited, 10 * 60000), 'Mondium closes for the update', exitInfo);
     const saved = JSON.parse(fs.readFileSync(path.join(profile, 'ayarlar.json'), 'utf8'));
     report(saved.restoreOnce === true, 'tabs are set to come back after the restart');
     report(await until(() => installedIs(latest), 5 * 60000), 'the new version is installed', latest);

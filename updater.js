@@ -300,8 +300,15 @@ function createUpdater({ app, session, shell, getSettings, save, onChange, confi
         if (appDir && env.LD_LIBRARY_PATH) env.LD_LIBRARY_PATH = env.LD_LIBRARY_PATH.split(':').filter((p) => p && !p.startsWith(appDir)).join(':');
         pending = { cmd: '/bin/sh', args: ['-c', SWAP_APPIMAGE, 'mondium-update', String(process.pid), install.file, st.stage], env, cwd: path.dirname(install.file) };
       } else if (install.type === 'deb') {
-        if (!await installDeb(st.file)) return;
-        app.relaunch();
+        if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] apt-get start
+`);
+        const __ok = await installDeb(st.file);
+        if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] apt-get done ok=${__ok}
+`);
+        if (!__ok) return;
+        const __r = app.relaunch();
+        if (process.env.MONDIUM_UPDATE_TRACE) require('fs').appendFileSync(process.env.MONDIUM_UPDATE_TRACE, `${new Date().toISOString()} [${process.pid}] relaunch returned ${__r}
+`);
       }
       app.quit();
     } finally { restartAsked = false; }
