@@ -390,6 +390,8 @@ check('package: cookies are encrypted, and the program cannot be used as a plain
   assert.equal(fuses.runAsNode, false);
   assert.equal(fuses.enableNodeOptionsEnvironmentVariable, false);
   assert.equal(fuses.grantFileProtocolExtraPrivileges, false);
+  assert(/enableCookieEncryption=false/.test(pkg.scripts['dist:mac']), 'an ad-hoc signed Mac app would ask for the Keychain after every update');
+  assert(!/enableCookieEncryption/.test(pkg.scripts['dist:win'] + pkg.scripts['dist:linux']));
   const dev = read('tools/dev.js');
   for (const name of ['EnableCookieEncryption', 'RunAsNode', 'EnableNodeOptionsEnvironmentVariable', 'GrantFileProtocolExtraPrivileges']) assert(dev.includes(`FuseV1Options.${name}`), `development must match the build: ${name}`);
 });

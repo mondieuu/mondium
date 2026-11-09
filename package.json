@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -12,7 +12,7 @@
     "start": "node tools/dev.js",
     "dist:win": "electron-builder --win nsis --x64 --publish never",
     "dist:linux": "electron-builder --linux deb AppImage --x64 --publish never",
-    "dist:mac": "electron-builder --mac dmg --publish never",
+    "dist:mac": "electron-builder --mac dmg --publish never -c.electronFuses.enableCookieEncryption=false",
     "vmp-dev": "python -m castlabs_evs.vmp sign-pkg node_modules/electron/dist",
     "start:electron": "electron .",
     "update-ublock": "node tools/update-ublock.js",
