@@ -231,7 +231,9 @@ async function main() {
       report(await val(page, 'typeof PublicKeyCredential') === 'undefined', 'passkeys disabled');
       const drm = await until(() => val(page, `navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{ initDataTypes: ['cenc'], videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"', robustness: 'SW_SECURE_CRYPTO' }] }]).then(() => true, () => false)`), 40000);
       info('Widevine', drm ? 'available' : 'not available within 40 s (may still be downloading)');
-      await pagePermissions({ uiWs, page, base }).catch((e) => report(false, 'permission checks ran', e.message));
+      // macOS: asking about notifications can open a system question nobody answers on a test machine, and the app waits for it.
+      // The bubble is the same code on every system, so Windows and Linux cover it.
+      if (process.platform !== 'darwin') await pagePermissions({ uiWs, page, base }).catch((e) => report(false, 'permission checks ran', e.message));
     }
 
     // Modules listed in build.extraResources must all load: the installed package has no other copy of them.
@@ -272,7 +274,7 @@ async function main() {
     if (st) await shot(st, 'settings.png');
     desktopShot('desktop-settings.png');
     // Clearing site permissions takes effect at once, not after a restart.
-    if (st && page) {
+    if (st && page && process.platform !== 'darwin') {
       await val(st, `pageApi.call('site-perms').then(() => 1)`);
       const after = await val(page, 'Notification.permission');
       report(after !== 'granted', 'clearing site permissions takes effect at once', after);
@@ -348,8 +350,8 @@ async function main() {
       else info('cookies on disk', row ? `plain ${row.value.length} bytes, sealed ${row.sealed} bytes` : 'cookie not found');
     } catch (e) { report(false, 'cookie store can be read', `${cookieFile}: ${e.message}`); }
 
-    // Fuses of this very program
-    try {
+    // Fuses of this very program. An AppImage is a wrapper around it, so its fuses cannot be read from outside.
+    if (!/\.AppImage$/i.test(exe)) try {
       const { getCurrentFuseWire, FuseV1Options } = require('@electron/fuses');
       const wire = await getCurrentFuseWire(exe.replace(/(\.app)\/Contents\/MacOS\/.*$/, '$1'));
       const off = (name) => wire[FuseV1Options[name]] === 48, on = (name) => wire[FuseV1Options[name]] === 49;   // ASCII 0 and 1
