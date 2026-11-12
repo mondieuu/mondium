@@ -163,9 +163,9 @@ $('f').addEventListener('submit', (e) => {
 // ---------- Theme
 function applyTheme(t) {
   const st = document.documentElement.style;
-  if (!t) { ['--bg', '--accent', '--box', '--modal'].forEach((n) => st.removeProperty(n)); return; }
+  if (!t) { ['--bg', '--accent', '--accent-fg', '--box', '--modal'].forEach((n) => st.removeProperty(n)); return; }
   st.setProperty('--bg', t.page);
-  st.setProperty('--accent', t.accent);
+  st.setProperty('--accent', t.accent); st.setProperty('--accent-fg', t.edge ? t.frame : '');
   if (t.mode === 'dark') { st.setProperty('--box', t.toolbar); st.setProperty('--modal', t.toolbar); }
   else { st.removeProperty('--box'); st.removeProperty('--modal'); }
 }

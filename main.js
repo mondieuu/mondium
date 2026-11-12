@@ -2684,8 +2684,8 @@ function showShieldMenu(pos) {
 }
 
 // ---------------------------------------------------------------- Bookmark folders (imported) and import
-// The data model stays a flat list: an imported bookmark has path = ['Google Chrome', 'Is', ...]. On the bar path[0]
-// shows as a single folder button; clicking it opens a native menu with its subfolders.
+// The data model stays a flat list: an imported bookmark has path = ['Is', 'Proje', ...], a plain one has no path.
+// On the bar path[0] shows as a single folder button; clicking it opens a native menu with its subfolders.
 // Scanning other browsers' files (and copying Firefox's database) is cached for a minute: the settings page
 // reloads its data on every settings change and must not rescan each time.
 let bmSrcCache = null;
@@ -2747,20 +2747,25 @@ function removeBookmarkGroup(g) {
   saveSettings(); forEachWin(() => pushState()); notifyPages('settings');
   return { removed: n - settings.bookmarks.length };
 }
-// Skipped if the URL already exists; folder name is the browser name (if it exists, new items are added to it)
-function addImported(items, group) {
+// The structure stays as it was in the other browser: its bookmarks bar goes straight onto ours, its folders become
+// folders on the bar. Skipped if the URL already exists.
+// Versions up to 1.6.4 put everything under one folder named after the browser (legacyGroup). Importing again moves
+// those bookmarks to their place on the bar instead of skipping them as duplicates.
+function addImported(items, legacyGroup) {
   if (!Array.isArray(items)) return { error: 'Yer işaretleri okunamadı.' };
+  const incoming = new Set(items.map((it) => it.url));
+  settings.bookmarks = settings.bookmarks.filter((b) => !(b.path && b.path[0] === legacyGroup && incoming.has(b.url)));
   const have = new Set(settings.bookmarks.map((b) => b.url));
   let added = 0, skipped = 0;
   for (const it of items) {
     if (have.has(it.url)) { skipped++; continue; }
     have.add(it.url);
-    settings.bookmarks.push({ url: it.url, title: it.title, favicon: null, path: [group, ...(it.path || [])] });
+    settings.bookmarks.push({ url: it.url, title: it.title, favicon: null, path: it.path && it.path.length ? it.path : [] });
     added++;
   }
   if (added && !settings.bookmarksBar) settings.bookmarksBar = true;
   saveSettings(true); forEachWin(() => { layout(); pushState(); }); notifyPages('settings');
-  return { added, skipped, group };
+  return { added, skipped };
 }
 async function importBookmarksHtml() {
   const r = await dialog.showOpenDialog(win, { title: 'Yer işareti dosyasını seçin', properties: ['openFile'], filters: [{ name: 'Yer işaretleri (HTML)', extensions: ['html', 'htm'] }] });
@@ -2972,7 +2977,10 @@ const THEMES = {
   bordo:   { name: 'Bordo', mode: 'dark', frame: '#230f16', toolbar: '#3a1c26', omni: '#230f16', accent: '#f2a7bd', page: '#2a131b' },
   gunbat:  { name: 'Gün batımı', mode: 'dark', frame: '#26130d', toolbar: '#3f2116', omni: '#26130d', accent: '#ffb087', page: '#2d1810' },
   kahve:   { name: 'Kahve', mode: 'dark', frame: '#1f1712', toolbar: '#33271f', omni: '#1f1712', accent: '#e3bd8f', page: '#251c16' },
-  grafit:  { name: 'Grafit', mode: 'dark', frame: '#17191c', toolbar: '#2a2d31', omni: '#17191c', accent: '#b9c4d0', page: '#1c1e21' }
+  grafit:  { name: 'Grafit', mode: 'dark', frame: '#17191c', toolbar: '#2a2d31', omni: '#17191c', accent: '#b9c4d0', page: '#1c1e21' },
+  // Palette of the user's picture: near black, deep teal, green and two yellows. The yellow is also drawn as a line
+  // (edge) on the active tab and around the focused address bar, so it shows beyond the small icons.
+  cyberpunk: { name: 'Cyberpunk', mode: 'dark', frame: '#121610', toolbar: '#0a5858', omni: '#083f3f', omniHover: '#0b4a4a', accent: '#e3e838', edge: '#e3e838', page: '#121610', menu: '#0d1511' }
 };
 const currentTheme = () => THEMES[settings.theme] || THEMES.sistem;
 // Pitch black: with the dark theme or a dark system theme, except colored themes
@@ -3011,7 +3019,7 @@ function paintFrame() {
 const INCOGNITO_THEME = { frame: '#202124', toolbar: '#35363a', omni: '#202124', accent: '#8ab4f8', page: '#202124', mode: 'dark' };
 function themeVars() {
   const t = effectiveTheme();
-  return t.frame ? { frame: t.frame, toolbar: t.toolbar, omni: t.omni, accent: t.accent, page: t.page, mode: t.mode, ...(t.menu ? { menu: t.menu } : {}), ...(t.card ? { card: t.card, activeTab: t.activeTab, omniHover: t.omniHover } : {}) } : null;
+  return t.frame ? { frame: t.frame, toolbar: t.toolbar, omni: t.omni, accent: t.accent, page: t.page, mode: t.mode, ...(t.menu ? { menu: t.menu } : {}), ...(t.edge ? { edge: t.edge } : {}), ...(t.card ? { card: t.card, activeTab: t.activeTab, omniHover: t.omniHover } : {}) } : null;
 }
 
 // ---------------------------------------------------------------- Local pages (new tab + welcome)

@@ -242,6 +242,7 @@
     'Gün batımı': 'Sunset',
     'Kahve': 'Coffee',
     'Grafit': 'Graphite',
+    'Cyberpunk': 'Cyberpunk',
     'Brave Search': 'Brave Search',
 
     // ---- Misc main
@@ -416,7 +417,7 @@
     'okunamadı': 'unreadable',
     'Aktar': 'Import',
     'Bu bilgisayarda yer işareti aktarılabilecek başka tarayıcı bulunamadı (Chrome, Edge, Brave, Opera, Vivaldi, Yandex, Firefox). HTML dosyasından aktarabilirsiniz.': 'No other browser to import bookmarks from was found on this computer (Chrome, Edge, Brave, Opera, Vivaldi, Yandex, Firefox). You can import from an HTML file.',
-    'Başka bir tarayıcıdaki yer işaretlerinizi Mondium’a aktarın. Dosyalar sadece bu bilgisayarda okunur, hiçbir yere gönderilmez ve o tarayıcıda hiçbir şey değişmez. Aktarılanlar yer işaretleri çubuğunda tarayıcının adıyla bir klasörde durur; zaten olan adresler tekrar eklenmez.': "Bring your bookmarks over from another browser. Files are read only on this computer, nothing is sent anywhere and nothing changes in the other browser. Imported bookmarks go into a folder named after the browser on the bookmarks bar; addresses you already have aren't added again.",
+    'Başka bir tarayıcıdaki yer işaretlerinizi Mondium’a aktarın. Dosyalar sadece bu bilgisayarda okunur, hiçbir yere gönderilmez ve o tarayıcıda hiçbir şey değişmez. Aktarılanlar o tarayıcıdaki gibi yer işaretleri çubuğuna gelir: çubuktakiler doğrudan, klasörler klasör olarak. Zaten olan adresler tekrar eklenmez.': "Bring your bookmarks over from another browser. Files are read only on this computer, nothing is sent anywhere and nothing changes in the other browser. Imported bookmarks arrive on the bookmarks bar as they were there: the ones on its bar directly, folders as folders. Addresses you already have aren't added again.",
     'Varsayılan profil': 'Default profile',
     'Diğer yer işaretleri': 'Other bookmarks',
     'Mobil yer işaretleri': 'Mobile bookmarks',
@@ -696,8 +697,8 @@
     ['{0} bir cihaza bağlanmak istiyor', '{0} wants to connect to a device'],
     ['{0} site için kaydedilmiş izin kararı var (kamera, konum, bildirim...).', 'Saved permission decisions for {0} {0:site|sites} (camera, location, notifications...).'],
     ['{0} cihaz izni var (USB, HID, seri, Bluetooth).', '{0} device {0:permission|permissions} (USB, HID, serial, Bluetooth).'],
-    ['{0} yer işareti "{1}" klasörüne aktarıldı, {2} tanesi zaten vardı. Yer işaretleri çubuğunda görebilirsiniz.', 'Imported {0} {0:bookmark|bookmarks} into the "{1}" folder; {2} {2:was|were} already there. You can find them on the bookmarks bar.'],
-    ['{0} yer işareti "{1}" klasörüne aktarıldı. Yer işaretleri çubuğunda görebilirsiniz.', 'Imported {0} {0:bookmark|bookmarks} into the "{1}" folder. You can find them on the bookmarks bar.'],
+    ['{0} yer işareti aktarıldı, {1} tanesi zaten vardı. Yer işaretleri çubuğunda görebilirsiniz.', 'Imported {0} {0:bookmark|bookmarks}; {1} {1:was|were} already there. You can find them on the bookmarks bar.'],
+    ['{0} yer işareti aktarıldı. Yer işaretleri çubuğunda görebilirsiniz.', 'Imported {0} {0:bookmark|bookmarks}. You can find them on the bookmarks bar.'],
     ['"{0}" klasöründeki {1} yer işareti silinsin mi?', 'Delete the {1} {1:bookmark|bookmarks} in the "{0}" folder?'],
     ['{0} yer işareti silindi.', '{0} {0:bookmark|bookmarks} deleted.'],
     ['{0} · {1} yer işareti', '{0} · {1} {1:bookmark|bookmarks}'],

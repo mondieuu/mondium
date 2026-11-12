@@ -190,10 +190,10 @@ let lastClicked = null;
 // ---------- Theme (same logic as the new tab page)
 function applyTheme(t) {
   const st = document.documentElement.style;
-  for (const n of ['--bg', '--accent', '--card', '--modal', '--field', '--sel']) st.removeProperty(n);
+  for (const n of ['--bg', '--accent', '--accent-fg', '--card', '--modal', '--field', '--sel']) st.removeProperty(n);
   if (!t) return;
   st.setProperty('--bg', t.page);
-  st.setProperty('--accent', t.accent);
+  st.setProperty('--accent', t.accent); st.setProperty('--accent-fg', t.edge ? t.frame : '');
   st.setProperty('--sel', `color-mix(in srgb, ${t.accent} 28%, transparent)`);
   if (t.mode === 'dark') { st.setProperty('--card', t.toolbar); st.setProperty('--modal', t.toolbar); st.setProperty('--field', t.toolbar); }
 }

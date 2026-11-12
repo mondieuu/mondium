@@ -180,9 +180,9 @@ let d = null;
 
 function applyTheme(t) {
   const st = document.documentElement.style;
-  for (const n of ['--bg', '--accent', '--card', '--field', '--sel']) st.removeProperty(n);
+  for (const n of ['--bg', '--accent', '--accent-fg', '--card', '--field', '--sel']) st.removeProperty(n);
   if (!t) return;
-  st.setProperty('--bg', t.page); st.setProperty('--accent', t.accent);
+  st.setProperty('--bg', t.page); st.setProperty('--accent', t.accent); st.setProperty('--accent-fg', t.edge ? t.frame : '');
   st.setProperty('--sel', `color-mix(in srgb, ${t.accent} 28%, transparent)`);
   if (t.mode === 'dark') { st.setProperty('--card', t.toolbar); st.setProperty('--field', t.toolbar); }
 }
@@ -387,7 +387,7 @@ function bmSection() {
   if (!bm.box) {
     const hh = el('h2', null, 'Yer işaretleri'); hh.id = 'yer-isaretleri';
     const c = el('div', 'card');
-    c.append(el('div', 'intro', 'Başka bir tarayıcıdaki yer işaretlerinizi Mondium’a aktarın. Dosyalar sadece bu bilgisayarda okunur, hiçbir yere gönderilmez ve o tarayıcıda hiçbir şey değişmez. Aktarılanlar yer işaretleri çubuğunda tarayıcının adıyla bir klasörde durur; zaten olan adresler tekrar eklenmez.'));
+    c.append(el('div', 'intro', 'Başka bir tarayıcıdaki yer işaretlerinizi Mondium’a aktarın. Dosyalar sadece bu bilgisayarda okunur, hiçbir yere gönderilmez ve o tarayıcıda hiçbir şey değişmez. Aktarılanlar o tarayıcıdaki gibi yer işaretleri çubuğuna gelir: çubuktakiler doğrudan, klasörler klasör olarak. Zaten olan adresler tekrar eklenmez.'));
     const msg = el('div', 'msg'); msg.setAttribute('role', 'status'); msg.setAttribute('aria-live', 'polite');
     const src = el('div', 'lst'); src.setAttribute('role', 'list'); src.setAttribute('aria-label', 'Bulunan tarayıcılar');
     const html = row('HTML dosyasından aktar', 'Safari ya da başka bir tarayıcıdan dışa aktardığınız yer işareti dosyası (.html).', button('Dosya seç', () => bmRun(() => api.call('bm-import-html'))));
@@ -406,7 +406,7 @@ async function bmRun(fn) {
     const r = await fn();
     if (!r || r.canceled) bmMsg('');
     else if (r.error) bmMsg(r.error, true);
-    else bmMsg(`${r.added} yer işareti "${r.group}" klasörüne aktarıldı` + (r.skipped ? `, ${r.skipped} tanesi zaten vardı` : '') + '. Yer işaretleri çubuğunda görebilirsiniz.');
+    else bmMsg(`${r.added} yer işareti aktarıldı` + (r.skipped ? `, ${r.skipped} tanesi zaten vardı` : '') + '. Yer işaretleri çubuğunda görebilirsiniz.');
   } catch (e) { bmMsg('Aktarılamadı: ' + e.message, true); }
   bm.busy = false;
   bmLoad();
