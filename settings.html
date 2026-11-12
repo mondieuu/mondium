@@ -242,7 +242,6 @@ function render() {
     select('newtabClockWeight', [[300, 'İnce'], [400, 'Normal'], [600, 'Yarı kalın'], [700, 'Kalın'], [900, 'Çok kalın']], 'Saatin kalınlığı', 'Bazı yazı tiplerinde her kalınlık bulunmaz.'),
     toggle('bookmarksBar', 'Yer işaretleri çubuğunu göster', 'Ctrl+Shift+B'),
     toggle('fullUrl', 'Adres çubuğunda tam URL göster', 'Kapalıyken "https://www." kısmı gizlenir.'),
-    toggle('forceDarkPages', 'Tüm sayfaları koyu göster', 'Siteleri zorla koyu renge çevirir. Yeniden başlatma gerekir.'),
     toggle('pitchBlack', 'Koyu temada tam siyah (pitch black)', 'Koyu temada ve sistem koyuyken çerçeve, araç çubuğu ve Mondium sayfaları tam siyah olur (OLED ekranlar için).'),
     toggle('verticalTabs', 'Dikey sekmeler', 'Sekmeler solda kenar çubuğunda listelenir. Genişliği kenar çubuğunun sağ kenarını sürükleyerek ayarlarsınız; en dar halinde sadece simgeler görünür.'),
     d.verticalTabs ? toggle('verticalAutoHide', 'Kenar çubuğunu otomatik gizle (Ctrl+S)', 'Kenar çubuğu gizlenir, sayfa tam genişlikte görünür. Fareyi ekranın sol kenarına götürünce ayarladığınız genişlikte açılır.') : null,

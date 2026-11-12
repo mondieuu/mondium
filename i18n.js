@@ -334,8 +334,6 @@
     'Yer işaretleri çubuğunu göster ': 'Show bookmarks bar',
     'Adres çubuğunda tam URL göster': 'Show full URLs in the address bar',
     'Kapalıyken "https://www." kısmı gizlenir.': 'When off, the "https://www." part is hidden.',
-    'Tüm sayfaları koyu göster': 'Show all pages dark',
-    'Siteleri zorla koyu renge çevirir. Yeniden başlatma gerekir.': 'Forces websites into dark colors. Requires a restart.',
     'Koyu temada tam siyah (pitch black)': 'Pitch black in dark mode',
     'Koyu temada ve sistem koyuyken çerçeve, araç çubuğu ve Mondium sayfaları tam siyah olur (OLED ekranlar için).': 'In the dark theme, or when the system is dark, the frame, toolbar and Mondium pages become pure black (for OLED screens).',
     'Dikey sekmeler': 'Vertical tabs',

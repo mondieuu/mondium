@@ -68,7 +68,6 @@ const DEFAULTS = {
   searchEngine: 'google',
   bookmarksBar: true,        // Thorium: on by default
   fullUrl: true,             // Thorium: show full URL
-  forceDarkPages: false,
   strictIsolation: true,     // true = every site in its own process like Chrome (more RAM, safer); false = only login/payment/protected sites isolated
   askDownloadLocation: false, // ask where to save every download (native, non-blocking dialog)
   newTabPrompt: false,       // Ctrl+T opens a search/address box first instead of the new tab page
@@ -303,8 +302,7 @@ const cl = app.commandLine;
 ].forEach((s) => cl.appendSwitch(s));
 cl.appendSwitch('enable-features', [
   'ParallelDownloading',            // Thorium: parallel downloads
-  'PlatformHEVCDecoderSupport',     // Thorium: HEVC/H.265 (if hardware supports it)
-  ...(settings.forceDarkPages ? ['WebContentsForceDark'] : [])
+  'PlatformHEVCDecoderSupport'      // Thorium: HEVC/H.265 (if hardware supports it)
 ].join(','));
 cl.appendSwitch('disable-features', [
   'BackForwardCache', 'SpareRendererForSitePerProcess', 'Translate', 'TranslateUI', 'MediaRouter',
@@ -3140,7 +3138,7 @@ function settingsData() {
     uboError: settings.adblockEngine !== 'hafif' && mainBlockSettled && !uboId,
     theme: settings.theme, themes: Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name, mode: t.mode, frame: t.frame || null, accent: t.accent || null })),
     engine: settings.searchEngine, engines: Object.entries(SEARCH_ENGINES).map(([key, x]) => ({ key, name: x.name })),
-    bookmarksBar: settings.bookmarksBar, fullUrl: settings.fullUrl, forceDarkPages: settings.forceDarkPages, strictIsolation: settings.strictIsolation, language: settings.language || 'auto',
+    bookmarksBar: settings.bookmarksBar, fullUrl: settings.fullUrl, strictIsolation: settings.strictIsolation, language: settings.language || 'auto',
     clearGoogleOnExit: settings.clearGoogleOnExit, restoreSession: settings.restoreSession,
     keepLogins: settings.keepLogins, newtabClock: settings.newtabClock, newtabClockSize: settings.newtabClockSize, newtabClockFont: settings.newtabClockFont, newtabClockWeight: settings.newtabClockWeight,
     sleepMinutes: settings.sleepMinutes, sleepChoices: SLEEP_CHOICES, downloadNotify: settings.downloadNotify,
@@ -3183,7 +3181,7 @@ function setLanguage(v) {
   }, 150);
 }
 function settingsSet(key, value) {
-  const bool = (k) => { if (typeof value !== 'boolean') return false; setSetting(k, value, k === 'forceDarkPages' || k === 'strictIsolation' || k === 'memorySaver'); return true; };
+  const bool = (k) => { if (typeof value !== 'boolean') return false; setSetting(k, value, k === 'strictIsolation' || k === 'memorySaver'); return true; };
   switch (key) {
     case 'theme': if (!THEMES[value]) return false; settings.theme = value; saveSettings(); applyTheme(); return true;
     case 'engine': case 'searchEngine': if (!SEARCH_ENGINES[value]) return false; setSetting('searchEngine', value); broadcastPages(); return true;
@@ -3217,7 +3215,7 @@ function settingsSet(key, value) {
     }
     case 'verticalAutoHide': if (typeof value !== 'boolean') return false; if (value !== !!settings.verticalAutoHide) { if (settings.verticalTabs) toggleAutoHide(); else { settings.verticalAutoHide = value; saveSettings(); } } return true;
     case 'adblockEngine': if (!['ubo', 'hafif'].includes(value)) return false; if (value !== settings.adblockEngine) setSetting('adblockEngine', value, true); return true;
-    case 'fullUrl': case 'forceDarkPages': case 'strictIsolation': case 'memorySaver': case 'clearGoogleOnExit': case 'restoreSession': case 'downloadNotify': case 'keepLogins': return bool(key);
+    case 'fullUrl': case 'strictIsolation': case 'memorySaver': case 'clearGoogleOnExit': case 'restoreSession': case 'downloadNotify': case 'keepLogins': return bool(key);
   }
   return false;
 }
