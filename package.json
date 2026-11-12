@@ -1,7 +1,7 @@
 {
   "name": "mondium",
   "productName": "Mondium",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Mondium: minimal, debloated, privacy-first Chromium-based browser",
   "main": "main.js",
   "license": "GPL-3.0",
@@ -20,6 +20,7 @@
     "postinstall": "node tools/prepare-security.js",
     "test:security": "node tools/test-security.cjs && node tools/test-hardening.cjs",
     "test:update": "node tools/test-update.cjs",
+    "test:window": "node tools/test-window-state.cjs",
     "check:engine": "node tools/check-engine.cjs",
     "test:platform": "node tools/test-platform.cjs",
     "test:smoke": "node tools/smoke-test.cjs"
@@ -73,6 +74,7 @@
       "vendor/**/*",
       "site-data.js",
       "bookmark-import.js",
+      "window-state.js",
       "i18n.js",
       "taskmanager.html",
       "bounded-fetch.js",

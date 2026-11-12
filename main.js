@@ -29,6 +29,7 @@ const { readResponseBytes, assertImageLimits } = require('./bounded-fetch');
 const { createUpdater } = require('./updater');
 const { createSiteData } = require('./site-data');
 const bookmarkImport = require('./bookmark-import');
+const windowState = require('./window-state');
 const { guardExtensionRouter } = require('./extension-guard');
 const { mayFetchForPage, mayFetchAfterLookup } = require('./net-rules');
 const { writeFileAtomic, writeFileAtomicSync, sweepTempFiles } = require('./safe-write');
@@ -3452,10 +3453,16 @@ function createWindow(opts = {}) {
   windows.push(w);
   useWin(w);
   const c = incognito ? { frame: INCOGNITO_THEME.frame, toolbar: INCOGNITO_THEME.toolbar, symbol: '#e3e3e3' } : themeColors();
-  // A new window opens slightly below-right of the previous one. For tests MONDIUM_TEST_DISPLAY: on that display, without stealing focus.
+  // The first window opens the way the last one was left (position, size, maximized). A new window opens slightly
+  // below-right of the previous one. For tests MONDIUM_TEST_DISPLAY: on that display, without stealing focus
+  // (MONDIUM_TEST_WINDOW_STATE lets a test use the saved state there too).
   let bounds = { width: 1280, height: 820 };
   const testDisplay = process.env.MONDIUM_TEST_DISPLAY;
-  if (testDisplay != null) {
+  const left = !incognito && !from && (testDisplay == null || process.env.MONDIUM_TEST_WINDOW_STATE)
+    ? windowState.place(settings.windowState, screen.getAllDisplays().map((d) => d.workArea)) : null;
+  if (left) {
+    bounds = left.bounds;
+  } else if (testDisplay != null) {
     const ds = screen.getAllDisplays();
     const d = ds[Math.min(Number(testDisplay) || 0, ds.length - 1)];
     const wa = d.workArea;
@@ -3473,6 +3480,7 @@ function createWindow(opts = {}) {
   });
   if (process.platform === 'win32') win.setAppDetails({ appId: 'local.mondium.tarayici', appIconPath: app.isPackaged ? path.join(process.resourcesPath, 'mondium.ico') : path.join(__dirname, 'build', 'icon.ico'), appIconIndex: 0, relaunchDisplayName: 'Mondium', relaunchCommand: app.isPackaged ? '"' + process.execPath + '"' : '"' + process.execPath + '" "' + __dirname + '"' });
   if (win.setMenu) win.setMenu(null);
+  if (left && left.maximized) win.maximize();   // before show(): no flash of the small window
 
   ui = w.ui = new WebContentsView({
     webPreferences: {
@@ -3510,10 +3518,26 @@ function createWindow(opts = {}) {
   on('swipe', (_e, dir) => { if (dir === 'left') goBack(); if (dir === 'right') goForward(); });
   // Save the session while the last normal window closes (it is then removed from the list)
   on('close', () => { if (!incognito && !quitting && windows.filter((x) => !x.incognito).length === 1) saveSession(true); });
+  if (!incognito) {
+    // Position and size are remembered a moment after they stop changing; a closing window saves them at once
+    let stateTimer = null;
+    const later = () => { clearTimeout(stateTimer); stateTimer = setTimeout(() => rememberWindow(w), 500); };
+    for (const ev of ['resize', 'move', 'maximize', 'unmaximize', 'restore']) win.on(ev, later);
+    win.on('close', () => { clearTimeout(stateTimer); if (!quitting) { rememberWindow(w); saveSettings(true); } });
+  }
   win.on('closed', () => closedWindow(w));
   if (testDisplay != null) win.showInactive(); else win.show();
   layout();
   return w;
+}
+
+// Keeps how the window is now, so the next start looks the same. Fullscreen and minimized leave the saved state as it was.
+function rememberWindow(w) {
+  if (!w || w.incognito || !w.win) return;
+  const state = windowState.snapshot(w.win);
+  if (!state) return;
+  settings.windowState = state;
+  saveSettings();
 }
 
 // Window closed: close the web contents of its tabs and UI (memory), remove it from the list
@@ -3633,6 +3657,7 @@ app.on('before-quit', (e) => {
   e.preventDefault();
   cleanedUp = true;
   saveSession(true);
+  rememberWindow(lastWin(true));   // quitting closes every window: the one used last decides how the next start looks
   quitting = true;
   saveSettings(true);
   saveHistory(true);
