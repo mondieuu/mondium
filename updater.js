@@ -329,11 +329,11 @@ function createUpdater({ app, session, shell, getSettings, save, onChange, confi
     if (isNewer(s.updateKnown, current)) Object.assign(st, { status: 'available', latest: s.updateKnown, notesUrl: `${RELEASES_URL}tag/v${s.updateKnown}` });
     else if (s.updateKnown) { s.updateKnown = ''; save(); }
     // Leftovers of an update that has finished (or was abandoned). Right after an update the installer that started this
-    // browser may still hold its own file, so a failed removal is tried again a few times (not while a new download uses the folder).
+    // browser may still hold its own file, so a failed removal is tried again every few seconds for a minute (not while a new download uses the folder).
     const sweep = (retries) => fs.promises.rm(updateDir, { recursive: true, force: true }).catch(() => {
-      if (retries > 0) setTimeout(() => { if (!['downloading', 'verifying', 'ready', 'installing'].includes(st.status)) sweep(retries - 1); }, 20000).unref?.();
+      if (retries > 0) setTimeout(() => { if (!['downloading', 'verifying', 'ready', 'installing'].includes(st.status)) sweep(retries - 1); }, 5000).unref?.();
     });
-    sweep(6);
+    sweep(12);
     if (install.bundle) {
       const parent = path.dirname(install.bundle);
       fs.promises.readdir(parent).then((names) => {
