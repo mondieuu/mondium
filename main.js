@@ -1678,6 +1678,81 @@ function closeTab(id) {
   else pushState();
 }
 
+// ---------- Tabs between windows
+// A live tab (its page keeps running: video, form, scroll) moves to another window of the same kind.
+// Normal and incognito windows never exchange tabs: they use different sessions.
+function moveTabToWindow(tab, dest) {
+  const src = tab && tab.w;
+  if (!src || !dest || src === dest || src.incognito !== dest.incognito || !windows.includes(src) || !windows.includes(dest) || !dest.win) return false;
+  if (src.htmlFullscreen) return false;                       // a page in fullscreen stays where it is
+  useWin(src);
+  const i = tabs.indexOf(tab);
+  if (i < 0) return false;
+  if (tab.view) dismissPromptsOf(tab.view.webContents);       // a permission bubble belongs to the window it was asked in
+  if (overlayOpen) closeOverlay(false);
+  if (activeId === tab.id && findOpen) closeFind();
+  if (tab.view && win) { try { win.contentView.removeChildView(tab.view); } catch {} }
+  tabs.splice(i, 1);
+  if (activeId === tab.id) { activeId = null; if (tabs.length) activateTab(tabs[Math.min(i, tabs.length - 1)].id); }
+  else pushState();
+  const emptied = tabs.length === 0;
+  useWin(dest);
+  tab.w = dest;
+  tab.lastActive = Date.now();
+  tabs.push(tab);
+  orderPinned();
+  if (extensions && tab.view) {
+    // chrome.tabs reports the window a tab is in; the library keeps that map itself
+    try {
+      const store = extensions.ctx.store, wc = tab.view.webContents;
+      store.tabToWindow.set(wc, dest.win); store.addWindow(dest.win); store.tabDetailsCache.delete(wc.id);
+      wc.emit('tab-updated');
+    } catch (e) { console.warn('extension window map:', e.message); }
+  }
+  activateTab(tab.id);
+  if (emptied && src.win) src.win.close();
+  saveSession();
+  return true;
+}
+// The window whose tab strip (or side bar) is under this screen point; a window that hides behind the source window does not count
+function windowAtTabStrip(p, src) {
+  const inside = (b) => p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+  if (src.win && inside(src.win.getBounds())) return null;
+  return windows.filter((w) => w !== src && w.incognito === src.incognito && w.win && !w.win.isMinimized() && !w.win.isFullScreen()).sort((a, b) => b.focusedAt - a.focusedAt)
+    .find((w) => {
+      const b = w.win.getBounds();
+      if (!inside(b)) return false;
+      return settings.verticalTabs ? p.x - b.x <= sideWidth(b.width) && p.y - b.y > TOOLBAR : p.y - b.y <= TAB_STRIP + 6;
+    }) || null;
+}
+// A tab pulled out of the strip (atCursor) or sent from its menu: dropped on another window's strip it joins that window, otherwise it gets a window of its own.
+function detachTab(id, atCursor) {
+  const tab = getTab(id);
+  const src = W;
+  if (!tab || !src || !src.win) return false;
+  const p = atCursor ? screen.getCursorScreenPoint() : null;
+  const dest = p && windowAtTabStrip(p, src);
+  if (dest) {
+    const ok = moveTabToWindow(tab, dest);
+    if (ok && process.env.MONDIUM_TEST_DISPLAY == null) { try { dest.win.focus(); } catch {} }
+    return ok;
+  }
+  if (tabs.length < 2 || src.htmlFullscreen) return false;   // the only tab of a window has nothing to leave
+  const size = src.win.getNormalBounds();
+  let bounds = null;
+  if (p) {
+    const wa = screen.getDisplayNearestPoint(p).workArea;
+    const width = Math.min(size.width, wa.width), height = Math.min(size.height, wa.height);
+    bounds = {
+      x: Math.max(wa.x, Math.min(p.x - 120, wa.x + wa.width - width)),
+      y: Math.max(wa.y, Math.min(p.y - 20, wa.y + wa.height - height)),
+      width, height
+    };
+  }
+  const w = createWindow({ incognito: src.incognito, bounds });
+  return moveTabToWindow(tab, w);
+}
+
 function sleepTab(id) {
   const tab = allTabs().find((t) => t.id === Number(id));
   if (!tab || !tab.view) return false;
@@ -2024,6 +2099,7 @@ ipcMain.on('ui', (e, cmd, arg) => {
       if (from >= 0) { const [t] = tabs.splice(from, 1); tabs.splice(Math.max(0, Math.min(arg.to, tabs.length)), 0, t); orderPinned(); pushState(); }
       break;
     }
+    case 'tab-detach': if (arg && Number.isInteger(arg.id)) detachTab(arg.id, true); break;
     case 'mute': toggleMute(arg); break;
     case 'pin': togglePin(arg); break;
     case 'omni-query': {
@@ -2833,6 +2909,7 @@ function showTabMenu(arg) {
     { label: 'Yenile', enabled: !!t.view, click: () => t.view && t.view.webContents.reload() },
     { label: 'Sekmeyi uyut', enabled: !!t.view && (t.id !== activeId || tabs.length > 1), click: () => sleepTab(t.id) },
     { label: 'Kopyala', click: () => newTab(t.url, false, t.id) },
+    { label: 'Sekmeyi yeni pencereye taşı', enabled: tabs.length > 1, click: () => detachTab(t.id, false) },
     { label: t.pinned ? 'Sabitlemeyi kaldır' : 'Sabitle', click: () => togglePin(t.id) },
     ...(settings.tabAudio ? [{ label: t.muted ? 'Sitenin sesini aç' : 'Sitenin sesini kapat', click: () => toggleMute(t.id) }] : []),
     { label: settings.verticalTabs ? 'Yatay sekmelere geç' : 'Dikey sekmelere geç', click: () => setVerticalTabs(!settings.verticalTabs) },
@@ -3458,7 +3535,9 @@ function createWindow(opts = {}) {
   const testDisplay = process.env.MONDIUM_TEST_DISPLAY;
   const left = !incognito && !from && (testDisplay == null || process.env.MONDIUM_TEST_WINDOW_STATE)
     ? windowState.place(settings.windowState, screen.getAllDisplays().map((d) => d.workArea)) : null;
-  if (left) {
+  if (opts.bounds) {
+    bounds = opts.bounds;   // a tab dropped out of a window: where it was let go
+  } else if (left) {
     bounds = left.bounds;
   } else if (testDisplay != null) {
     const ds = screen.getAllDisplays();

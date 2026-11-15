@@ -618,6 +618,7 @@
 
     // ---- Tabs, downloads, new tab box
     'Sekmeyi uyut': 'Put tab to sleep',
+    'Sekmeyi yeni pencereye taşı': 'Move tab to new window',
     'Yeni sekmede ara veya adres yaz': 'Search or type an address in a new tab',
     'Yeni sekmede arama kutusu': 'New tab search box',
     'Ctrl+T ile önce arama veya adres kutusunu aç; sekme adresi yazınca oluşur.': 'Ctrl+T first opens a search or address box; the tab is created when you enter an address.',

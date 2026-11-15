@@ -59,6 +59,11 @@
   .tab.narrow:not(.on) .x { display:none; }
   .tab.narrow.on .ico { display:none; }
   .tab.drag { opacity:.85; z-index:5; }
+  .tab.leaving { opacity:.35; }
+  .out-chip { position:fixed; left:0; top:0; z-index:150; pointer-events:none; max-width:240px; height:32px; display:flex; align-items:center; gap:8px; padding:0 14px 0 10px; border-radius:8px; background:var(--omni-hover); color:var(--text); font-size:12px; box-shadow:0 8px 22px rgba(0,0,0,.4); }
+  .out-chip .ico { width:16px; height:16px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .out-chip .ico img, .out-chip .ico svg { width:16px; height:16px; }
+  .out-chip .out-title { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   /* Pinned tab: icon only */
   .tab.pin { width:44px; flex:none; padding:0; justify-content:center; gap:2px; }
   .tab.pin .title, .tab.pin .x { display:none; }
@@ -645,6 +650,7 @@ function tabEl(t, active, existing) {
 // Reorder tabs by dragging
 window.addEventListener('mousemove', (e) => {
   if (!drag) return;
+  if (drag.moved && !(e.buttons & 1)) { finishDrag(e); return; }   // the button was let go where this page could not see it
   const vert = document.body.classList.contains('vert');
   const pinned = vert && drag.el.parentNode === $('pinnedtabs');
   const x = e.clientX - drag.startX, y = e.clientY - drag.startY;
@@ -680,13 +686,48 @@ window.addEventListener('mousemove', (e) => {
     return;
   }
   drag.moved = true;
+  // The UI is raised over the page for the whole drag, so the pointer keeps reporting when it leaves the tab strip.
+  if (!drag.dragging) { drag.dragging = true; send('tab-drag-start'); }
   drag.el.classList.add('drag');
-  drag.el.style.transform = vert ? `translateY(${dx}px)` : `translateX(${dx}px)`;
+  // Far enough from the strip (or out of the window): the tab becomes a floating chip and is dropped as its own window.
+  const side = vert ? $('side').getBoundingClientRect().right : 0;
+  const out = vert
+    ? e.clientX > side + 28 || e.clientX < -12 || e.clientY < -12 || e.clientY > innerHeight + 12
+    : e.clientY > TAB_STRIP_H + 28 || e.clientY < -12 || e.clientX < -12 || e.clientX > innerWidth + 12;
+  if (out && !drag.chip) drag.chip = makeChip(drag.el);
+  if (!out && drag.chip) { drag.chip.remove(); drag.chip = null; }
+  drag.out = out;
+  drag.el.classList.toggle('leaving', out);
+  if (out) { drag.chip.style.transform = `translate(${e.clientX - 24}px,${e.clientY - 16}px)`; drag.el.style.transform = ''; }
+  else drag.el.style.transform = vert ? `translateY(${dx}px)` : `translateX(${dx}px)`;
 });
-window.addEventListener('mouseup', (e) => {
+const TAB_STRIP_H = 42;
+function makeChip(tabEl) {
+  const c = document.createElement('div'); c.className = 'out-chip';
+  const ico = tabEl.querySelector('.ico'); if (ico) c.append(ico.cloneNode(true));
+  const t = document.createElement('span'); t.className = 'out-title'; t.textContent = (tabEl.querySelector('.title') || {}).textContent || ''; c.append(t);
+  document.body.append(c);
+  return c;
+}
+// Everything a tab drag left behind (also when the drag is cancelled)
+function endTabDrag(d) {
+  if (d.chip) { d.chip.remove(); d.chip = null; }
+  d.el.classList.remove('leaving');
+  if (d.dragging) { d.dragging = false; send('tab-drag-end'); }
+}
+window.addEventListener('mouseup', (e) => finishDrag(e));
+function finishDrag(e) {
   if (!drag) return;
   const d = drag; drag = null;
   if (!d.moved) { send('activate', d.id); return; }
+  const dropped = d.out;
+  endTabDrag(d);
+  if (dropped) {
+    d.el.style.transform = ''; d.el.classList.remove('drag');
+    send('tab-detach', { id: d.id });
+    if (pending) { const s = pending; pending = null; render(s); }
+    return;
+  }
   const pinnedDrag = document.body.classList.contains('vert') && d.el.parentNode === $('pinnedtabs');
   const els = pinnedDrag ? [...$('pinnedtabs').children] : document.body.classList.contains('vert') ? [...$('pinnedtabs').children, ...tabsEl.children] : [...tabsEl.children];
   let to = 0;
@@ -705,10 +746,20 @@ window.addEventListener('mouseup', (e) => {
     if (pinnedDrag) { const ids = [...$('pinnedtabs').children].map((el) => Number(el.dataset.id)); s.tabs = ids.map((id) => s.tabs.find((t) => t.id === id)).filter(Boolean).concat(s.tabs.filter((t) => !t.pinned)); }
     render(s);
   }
-});
+}
 
 window.addEventListener('blur', () => {
-  if (!drag || !drag.ghost) return;
+  if (!drag) return;
+  if (!drag.ghost) {
+    if (!drag.dragging) return;
+    // The window lost focus in the middle of a tab drag: cancel it and put the tab back
+    const d = drag; drag = null;
+    endTabDrag(d); d.el.style.transform = ''; d.el.classList.remove('drag');
+    tabsKey = '';
+    if (state) render(pending || state);
+    pending = null;
+    return;
+  }
   drag.ghost.remove(); drag.el.classList.remove('placeholder'); drag = null;
   send('tab-drag-end'); tabsKey = '';
   if (state) render(pending || state);
